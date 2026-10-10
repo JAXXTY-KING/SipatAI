@@ -7,7 +7,7 @@
       </RouterLink>
       <nav class="primary-nav" aria-label="Main navigation">
         <RouterLink to="/" exact-active-class="is-active">Dashboard</RouterLink>
-        <RouterLink to="/flood-map" active-class="is-active">Flood map</RouterLink>
+        <RouterLink to="/flood-map" active-class="is-active">Parcels & flood map</RouterLink>
         <RouterLink to="/scenes" active-class="is-active">Satellite scenes</RouterLink>
         <RouterLink to="/reports" active-class="is-active">Report center</RouterLink>
       </nav>
@@ -20,7 +20,7 @@
         <span class="environment-label"><i></i> AGRICULTURAL FLOOD ASSESSMENT</span>
         <nav class="mobile-nav" aria-label="Main navigation">
           <RouterLink to="/" exact-active-class="is-active">Dashboard</RouterLink>
-          <RouterLink to="/flood-map" active-class="is-active">Flood map</RouterLink>
+          <RouterLink to="/flood-map" active-class="is-active">Parcels & flood</RouterLink>
           <RouterLink to="/scenes" active-class="is-active">Scenes</RouterLink>
           <RouterLink to="/reports" active-class="is-active">Reports</RouterLink>
         </nav>

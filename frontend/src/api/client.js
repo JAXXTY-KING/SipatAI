@@ -26,6 +26,17 @@ export async function fetchDamageMap() {
   return response.json()
 }
 
+export async function fetchParcelMap(bounds) {
+  const parameters = new URLSearchParams({
+    west: String(bounds.getWest()),
+    south: String(bounds.getSouth()),
+    east: String(bounds.getEast()),
+    north: String(bounds.getNorth()),
+  })
+  const response = await request(`/api/v1/parcels/map?${parameters}`)
+  return response.json()
+}
+
 export async function searchSatelliteScenes(search) {
   const response = await request('/api/v1/scenes/search', {
     method: 'POST',

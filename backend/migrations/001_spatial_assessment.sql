@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS assessment_runs (
     source_crs TEXT NOT NULL,
     geometry_crs TEXT NOT NULL DEFAULT 'EPSG:4326' CHECK (geometry_crs = 'EPSG:4326'),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    completed_at TIMESTAMPTZ
+    completed_at TIMESTAMPTZ,
     CONSTRAINT assessment_completed_timestamp_required
         CHECK (status <> 'completed' OR completed_at IS NOT NULL)
 );

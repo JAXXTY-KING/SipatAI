@@ -1,6 +1,6 @@
 # SipatAI Project Handover
 
-**Status date:** 2026-10-04
+**Status date:** 2026-10-10
 
 ## Project Goal
 
@@ -20,18 +20,23 @@ The system must not replace unavailable operational data with fabricated assessm
 ### Implemented and checked
 
 - Vue 3/Vite application with dashboard, flood map, report center, and satellite-scene search screens.
-- FastAPI routes: `GET /health`, `GET /api/v1/barangay/summary`, `GET /api/v1/damage-map`, `POST /api/v1/analyze`, `POST /api/v1/scenes/search`, and `POST /api/v1/reports`.
+- FastAPI routes: `GET /health`, `GET /api/v1/barangay/summary`, `GET /api/v1/damage-map`, `GET /api/v1/parcels/map`, `POST /api/v1/analyze`, `POST /api/v1/scenes/search`, and `POST /api/v1/reports`.
 - Copernicus Data Space STAC search for Sentinel-1 GRD and Sentinel-2 L2A. Searches use a Philippines bounding box, selected dates, and optional Sentinel-2 cloud-cover filtering. Live searches returned real catalog results.
 - MindSpore 2.10.0 ResNet-50 U-Net implementation, shared model configuration, weighted focal-Dice loss, tiled dataset reader, training entry point, and MindIR exporter. A CPU forward pass, a gradient/training step, and a 512x512 dataset batch were tested.
 - GaussDB/PostGIS migration files, connection handling, spatial queries, and database-backed assessment/report services.
+- A source-agnostic command-line parcel workflow can inspect and validate GeoJSON, Shapefile, and GeoPackage files, then import authorized data into `farm_parcels` with explicit CRS/field mapping, area-filtered chunks, required source attribution, duplicate protection, transactional writes, dry-run, and read-only verification. It has not yet been tested against an authorized parcel dataset or a live Huawei GaussDB instance.
+- The map shows SimpleMaps' 17 first-level administrative regions as an attributed, optional context layer only; these boundaries are not farm parcels and are not used in assessments.
+- The map also has a separately attributed PhilSA historical Sentinel-1 observed-flood reference (2025-07-06, CC BY 4.0). The full 61,774-feature source footprint is rasterized for map display; 15,705 invalid source geometries were repaired before rasterization. The source warns it was not validated against ground truth. It is not a SipatAI assessment, farm parcel, or damage statistic.
 - Huawei ModelArts HTTP client and Huawei OBS SDK integration. OBS supports a bucket metadata check and backend artifact upload. Credentials are read only by the backend.
 - The UI and APIs fail closed: without a completed GaussDB assessment, summary/map/report requests return an unavailable response rather than sample results.
-- The Geoportal Map Viewer was checked. Its LMB "Parcel data" layer metadata describes cadastral polygons in selected Metro Manila areas. The August 2026 inventory marks download as conditional. It is not verified as nationwide farm-parcel coverage.
+- The Mapbox background style is Mapbox Streets (`streets-v12`) for clearer roads, water, and land colors. This changes presentation only, not data or analysis.
+- The Geoportal Map Viewer was checked. Its LMB "Parcel data" layer metadata describes selected Metro Manila cadastral polygons. The catalogue gives `download: null`; its download form did not offer an export during review, and direct WMS/WFS requests timed out. It is not verified as downloadable or as nationwide farm-parcel coverage.
 
 ### Not yet operational
 
 - No Huawei OBS bucket, ModelArts inference endpoint, or GaussDB/PostGIS instance is configured.
 - There is no authorized nationwide farm-parcel dataset loaded into the database.
+- No parcel dataset is currently cleared for import into this project. Geoportal/LMB is a verified cadastral-data lead but its available footprint is selected Metro Manila, not the Ilocos Norte study area; the portal has not provided an extract. An ArcGIS Online service for Midori Highlands in Clark returns subdivision polygons, but its license field is blank and its sample attributes label the feature commercial, not agricultural; public query access is not a reuse license. PHIVOLCS metadata remains inaccessible, the public NAMRIA REST inventory did not expose a parcel layer, and SimpleMaps provides administrative regions rather than lots.
 - Sentinel scene search is implemented, but authenticated product download to OBS is not yet implemented.
 - SNAP/GDAL preprocessing is not implemented end to end.
 - The MindSpore model has no trained weights. Training requires labeled tiles and approved hyperparameters.
@@ -51,9 +56,34 @@ The official Copernicus Data Space Ecosystem provides Sentinel-1 and Sentinel-2 
 
 ### Farm parcels
 
-The Geoportal inventory lists LMB "Parcel data" as conditionally downloadable. The layer's metadata describes selected Metro Manila areas, not the whole Philippines. Its exact downloadable extent and permitted use still need confirmation from the Land Management Bureau (LMB). The DA RSBSA site requires login and does not expose an open national parcel download in its public pages.
+The best verified official parcel-data lead is LMB's Geoportal layer, but it does not meet the project's area, use, and download requirements yet:
 
-Request authorized farm-parcel polygons from LMB, the Department of Agriculture, or relevant local governments. Ask for coverage, CRS, file format, field definitions, update date, permitted use, and a version without landowner personal data. Do not treat land-cover maps as cadastral parcel boundaries.
+- [Geoportal layer record/configuration](https://geoportal.gov.ph/layers/fetchlayerconfig/denr_parcel_data/ParcelData) identifies the publisher as the Land Management Bureau (LMB) and the layer as `denr_parcel_data` / “Parcel data”.
+- Its embedded FGDC metadata describes cadastral parcel polygons in **selected Metro Manila areas**, with a stated 57,150 polygon features and a bounding box of 120.85786–121.100809°E, 14.617931–14.798865°N. Listed fields include `ogc_fid`, `lotnumber`, `shape_length`, and `shape_area`; no crop or farm-use field is listed.
+- The catalogue advertises a WMS-backed map layer but reports `download: null`. Geoportal's Download form did not offer this layer in the checked session. Direct WMS/WFS feature requests to `https://geoserver.geoportal.gov.ph/geoserver/geoportal/` timed out, so a working vector-download URL and actual feature query were not verified. The metadata's “None” access/use-constraint text is not a separate open-data license grant. Request an extract and written reuse terms from LMB before importing or redistributing it.
+- The geographic footprint does not include Bacarra/Ilocos Norte, and the service is cadastral rather than confirmed agricultural inventory. It might support a separately described cadastral visualization after access approval, but it must not be labelled farm parcels or used for crop-damage calculations without agricultural attributes and authorization.
+
+A second, technically queryable ArcGIS item is [Midori Highlands Parcels](https://services7.arcgis.com/yiuFazTjHE8F5gzQ/arcgis/rest/services/Midori_Highlands_Parcels/FeatureServer/1), published by a non-government ArcGIS account ([item metadata](https://www.arcgis.com/sharing/rest/content/items/0fe446101a264d878dffb5a57c2de963?f=pjson)). For example, the [GeoJSON query](https://services7.arcgis.com/yiuFazTjHE8F5gzQ/arcgis/rest/services/Midori_Highlands_Parcels/FeatureServer/1/query?where=1%3D1&outFields=OBJECTID%2Cname%2Carea_sqm%2Carea_ha%2Cland_use&returnGeometry=true&outSR=4326&resultRecordCount=2&f=geojson) returns polygon geometry and `OBJECTID`, `name`, `area_sqm`, `area_ha`, and `land_use`. Its published extent is a small subdivision in Clark, Pampanga; a returned example is “Aqua Planet”, `land_use: Commercial`. The ArcGIS item has blank `licenseInfo` and `accessInformation`. It is not an agricultural dataset, is not in the target municipality, and has no stated permission for copying or rehosting; do not import it without the publisher's written permission.
+
+The PHIVOLCS HAS_PARCELS MapServer/FeatureServer and `testparcel1` FeatureServer endpoints returned HTML/error responses instead of usable service metadata in checks. NAMRIA's public REST directory lists map services, but no parcel layer was found in its public listing; its `Database` service folder requires a token. NAMRIA's public downloads page did not identify parcel geometry. SimpleMaps is licensed CC BY 4.0, but its 17 first-level administrative-region polygons are not individual lots. The DA RSBSA public site did not expose an open national parcel download.
+
+**Conclusion:** there is no verified, licensed parcel extract ready to import. Nationwide, Luzon, Ilocos Norte, and Bacarra agricultural-parcel coverage remain unverified. Do not use a commercial subdivision, administrative boundary, land-cover polygon, or flood extent as a substitute.
+
+**Next request:** ask LMB's Land Surveys Management Information Section for a small Bacarra/Ilocos Norte sample if available, otherwise the selected Metro Manila parcel layer only for a clearly labelled cadastral demo. Request stable IDs, CRS, field dictionary, current extent, an export/service endpoint, and written terms that explicitly allow local storage in SipatAI's PostGIS database, analysis, map display, and any presentation/republication. For actual farm impact analysis, ask the DA, DAR, and Bacarra/Municipal Agriculture Office for an authorized farm-parcel dataset without unnecessary landowner personal information. Do not use the LMB item or ArcGIS sample until permissions and access are confirmed.
+
+Suggested request text:
+
+> **Subject: Request for authorized parcel polygon sample for SipatAI**
+>
+> Dear Land Management Bureau,
+>
+> Our student team is developing SipatAI, a flood-exposure research prototype. We found the Geoportal “Parcel data” layer attributed to LMB and its metadata describes selected Metro Manila coverage. Could you advise whether an authorized parcel polygon extract is available for Bacarra or elsewhere in Ilocos Norte? If not, may we request a small sample from the existing Metro Manila layer for a clearly attributed, non-commercial demonstration?
+>
+> Please provide the geographic coverage, CRS, stable parcel-ID field and data dictionary, update date, and a vector download or query procedure. Please state in writing whether we may store the sample in our project PostGIS database, analyze it, display it in a student presentation, and redistribute derived or source geometries. We do not need owner names or other personal information.
+>
+> Sincerely, SipatAI project team
+
+The command-line workflow is documented in [gaussdb_postgis.md](gaussdb_postgis.md). Request authorized farm-parcel polygons from LMB, DA, DAR, or relevant local governments. Ask for coverage, CRS, file format, stable field identifiers, update date, permitted use, and a version without landowner personal data. Do not treat land-cover or administrative maps as cadastral parcel boundaries.
 
 ## Ordered Work Plan
 
@@ -65,7 +95,7 @@ Request authorized farm-parcel polygons from LMB, the Department of Agriculture,
 6. **Produce aligned labeled training tiles.** The current model contract is 512x512 pixels, channel order `VV, VH, NDVI, NDWI, RED, NIR`, and classes `not_flooded, flooded`. Confirm these against the strategy/training data before creating the production dataset. Obtain flood labels and define class weights, focal gamma, Dice weight, optimizer, learning rate, and evaluation criteria with the ML lead.
 7. **Train and evaluate MindSpore.** Train with the repository's MindSpore Dataset and U-Net code on the selected compatible ModelArts hardware. Evaluate against held-out labeled events and document model version/metrics before deployment.
 8. **Export and deploy MindIR.** Export the trained checkpoint, deploy it through ModelArts, confirm its input/output JSON schema, and configure the backend endpoint URL/token. Exercise `/api/v1/analyze` with a real prepared tile.
-9. **Load parcels and compute damage in PostGIS.** Import only authorized parcel data through a controlled backend ingestion job. Preserve source CRS metadata. Run spatial intersection and geodesic hectare calculations in PostGIS. Apply severity and crop-valuation rules only after the responsible agency approves those rules.
+9. **Load parcels and compute damage in PostGIS.** Import only authorized parcel data through `python -m scripts.import_parcels` as documented in [gaussdb_postgis.md](gaussdb_postgis.md). Verify coverage, SRID, geometry validity, and duplicate IDs. The existing `compute_parcel_damage()` query remains unconnected to the assessment lifecycle; wire it only after real flood polygons are produced. Apply severity and crop-valuation rules only after the responsible agency approves those rules.
 10. **Verify an end-to-end event.** Search/download a real event's scenes, preprocess, run ModelArts, intersect in PostGIS, inspect map output, and generate a report. Verify data provenance, units, CRS, coverage gaps, and mobile/desktop behavior before calling it operational.
 
 ## Huawei Configuration
@@ -93,4 +123,17 @@ The backend Psycopg package imports and runs in `backend/.venv`; Pylance has pre
 
 ## First Task for the Next Work Session
 
-Continue the real Sentinel pipeline by implementing authenticated Copernicus product download into OBS. Before using download credentials, keep the Copernicus token in the backend environment only. In parallel, request the nationwide parcel-data coverage and access terms from LMB/DA.
+Get a small, authorized parcel dataset and its data dictionary from LMB, DA, DAR, or a local government. Inspect and validate its real CRS, fields, stable identifiers, geometry, and coverage with the documented parcel workflow, then run a database dry-run and load it into a provisioned PostGIS-compatible GaussDB instance. Do not move on to authenticated Sentinel downloads until parcel import and verification have been demonstrated with authorized data.
+
+## Consolidated Change History
+
+This section records the work added during the SipatAI parcel-data and demonstration work, in order. It is a project handover summary, not a claim that every feature in the repository originated in this work.
+
+1. **Reviewed the existing spatial design and data sources.** Confirmed the existing `farm_parcels`, flood polygon, assessment-run, and parcel-damage PostGIS design; examined assessment, damage-map, migration, route, setup, and project documentation. Confirmed that the reviewed NAMRIA, PHIVOLCS, SimpleMaps, and Geoportal sources did not initially establish an authorized farm-parcel download.
+2. **Repaired and extended the parcel database workflow.** Fixed the missing comma in the fresh-install spatial migration. Added the additive source-attribution migration. Added a controlled GeoJSON/Shapefile/GeoPackage CLI to inspect, validate, explicitly transform CRS, filter by a selected study area, require stable provider IDs and attribution, perform dry-runs and transactional/idempotent imports, and verify stored data. It never fabricates IDs, crop values, or boundaries. Existing migration history is not reset or rewritten for a database that already recorded a migration.
+3. **Connected stored parcels to the application.** Added a viewport-bounded `GET /api/v1/parcels/map` endpoint and a Mapbox parcel layer in `/flood-map`, with source/attribute popups, layer controls, and explicit API/database-unavailable messages. Parcel display depends on authorized data being imported and GaussDB/PostGIS being configured.
+4. **Added an administrative reference layer.** Bundled SimpleMaps' 17 first-level region polygons under CC BY 4.0. They are identified as administrative regions, not parcels, and are not used in impact calculations.
+5. **Added a historical flood reference for a non-fabricated map demonstration.** Bundled an attributed, transparent raster made from the Philippine Space Agency's 2025-07-06 Sentinel-1 flood-extent Shapefile distributed through HDX under CC BY 4.0. The source contains 61,774 polygon features, covers only its supplied extent (about 119.86–122.52°E, 11.83–19.54°N), and warns it was not validated against ground truth; 15,705 invalid source geometries were repaired during raster preparation. The UI calls this a historical observed-flood reference, not a SipatAI prediction, assessment, or parcel layer.
+6. **Improved map presentation and documentation.** Switched the Mapbox basemap from the pale Light style to Streets; retained separate overlays, legends, source links, and no-data labels. Added automated checks for importer behavior, API behavior, and the raster's extent/attribution/caveat.
+
+**Verification status:** the recorded local checks include 19 backend unit tests, Python compile/dependency checks, PostGIS SQL parsing, and successful frontend production builds. The static PhilSA raster was served locally and its asset assertions passed. A local API health check passed, but parcel and assessment routes returned 503 because `GAUSSDB_DSN` is not configured. No real parcel has been imported; no live PostGIS parcel response or end-to-end SipatAI flood assessment has been verified.

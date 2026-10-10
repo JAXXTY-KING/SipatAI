@@ -96,4 +96,4 @@ Do not install MindSpore or download an Ubuntu image for this dashboard stage. T
 
 Ubuntu is an operating-system image for a cloud server, not an application to install on Windows. We only need to select a Linux image if a later deployment step calls for a Linux Huawei ECS server. ModelArts is the planned training and inference platform: https://support.huaweicloud.com/intl/en-us/modelarts/index.html.
 
-SNAP and GDAL are also deferred until the Sentinel preprocessing pipeline is implemented. They are specialized geospatial tools and are not needed to run this dashboard/API foundation.
+SNAP and the full GDAL command-line toolchain are deferred until the Sentinel preprocessing pipeline is implemented. The parcel importer uses Fiona, which includes the GDAL support it needs for vector formats; install it through `backend/requirements.txt` rather than installing a separate GDAL package for the importer.

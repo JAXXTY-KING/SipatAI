@@ -72,6 +72,32 @@ tbody tr:last-child td { border-bottom: 0; }
 .map-message { position: absolute; inset: 0; z-index: 1; display: grid; place-content: center; gap: .4rem; padding: 1rem; background: rgba(231, 236, 235, .94); text-align: center; }
 .map-message span { max-width: 30rem; color: var(--muted); font-size: .85rem; }
 .map-legend { position: absolute; right: .75rem; bottom: .75rem; z-index: 1; display: flex; flex-wrap: wrap; gap: .65rem; padding: .65rem .75rem; border: 1px solid var(--line); background: var(--paper); font-size: .75rem; }
+.parcel-map-intro { margin: -.35rem 0 .8rem; color: var(--muted); font-size: .84rem; line-height: 1.5; }
+.map-workflow { display: grid; gap: .5rem; margin-bottom: .8rem; }
+.map-workflow article { display: flex; align-items: flex-start; gap: .65rem; min-width: 0; padding: .65rem; border: 1px solid var(--line); background: var(--paper); }
+.map-workflow article > span { display: grid; flex: 0 0 1.45rem; width: 1.45rem; height: 1.45rem; place-items: center; border: 1px solid #bfd6cb; color: var(--green-dark); font-size: .74rem; font-weight: 700; }
+.map-workflow strong { font-size: .8rem; }
+.map-workflow p { margin: .2rem 0 0; color: var(--muted); font-size: .74rem; line-height: 1.4; }
+.parcel-map-frame { min-height: 32rem; }
+.parcel-map-tools { position: absolute; top: .75rem; left: .75rem; z-index: 1; display: grid; max-width: min(27rem, calc(100% - 1.5rem)); gap: .55rem; padding: .75rem; border: 1px solid var(--line); background: rgba(255, 255, 255, .96); }
+.map-layer-toggle { display: flex; align-items: center; gap: .45rem; color: var(--ink); font-size: .76rem; font-weight: 600; cursor: pointer; }
+.map-layer-toggle input { accent-color: var(--green); }
+.region-swatch, .region-legend-mark { width: .8rem; height: .8rem; border: 1px solid #647d76; background: rgba(140, 166, 160, .3); }
+.parcel-swatch, .damage-swatch { width: .8rem; height: .8rem; border: 1px solid var(--green); background: rgba(52, 124, 94, .25); }
+.damage-swatch { border-color: #47356b; background: rgba(113, 85, 154, .58); }
+.flood-reference-swatch, .flood-reference-legend-mark { width: .8rem; height: .8rem; border: 1px solid #075b82; background: rgba(22, 133, 181, .42); }
+.parcel-map-status { margin: 0; color: var(--muted); font-size: .73rem; line-height: 1.4; overflow-wrap: anywhere; }
+.parcel-map-attribution { max-width: 25rem; margin: 0; color: var(--muted); font-size: .67rem; line-height: 1.4; }
+.parcel-map-attribution a { color: var(--green-dark); }
+.parcel-refresh-button { justify-self: start; min-height: 2rem; padding: .35rem .55rem; border: 1px solid var(--line); border-radius: 3px; background: var(--paper); color: var(--green-dark); font-size: .73rem; font-weight: 650; cursor: pointer; }
+.parcel-refresh-button:disabled { opacity: .65; cursor: wait; }
+.parcel-legend { top: .75rem; right: .75rem; bottom: auto; display: block; min-width: 8rem; }
+.parcel-legend summary { color: var(--ink); font-size: .76rem; font-weight: 700; cursor: pointer; }
+.parcel-legend-items { display: grid; gap: .5rem; margin-top: .6rem; }
+.parcel-legend-items span { display: flex; align-items: center; gap: .4rem; }
+.parcel-legend-mark, .damage-legend-mark { width: .7rem; height: .7rem; border: 1px solid var(--green); background: rgba(52, 124, 94, .25); }
+.damage-legend-mark { border-color: #47356b; background: rgba(113, 85, 154, .58); }
+.flood-reference-legend-mark { border-color: #075b82; background: rgba(22, 133, 181, .42); }
 .legend-item { display: flex; align-items: center; gap: .35rem; }
 .legend-item i { width: .65rem; height: .65rem; }
 .report-summary { max-width: 46rem; }
@@ -110,11 +136,14 @@ tbody tr:last-child td { border-bottom: 0; }
 @media (min-width: 640px) {
   .page-view { padding: 1.75rem 1.5rem 2.5rem; }
   .metric-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .map-workflow { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .service-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .report-fields { grid-template-columns: 1fr 1fr; column-gap: 1.25rem; }
   .scene-search-form { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; }
   .map-frame { min-height: 32rem; }
   .map-message { min-height: 32rem; }
+  .parcel-map-tools { top: .5rem; left: .5rem; }
+  .parcel-legend { top: auto; right: .5rem; bottom: .5rem; }
 }
 
 @media (min-width: 1024px) {
