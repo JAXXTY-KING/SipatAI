@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 
 import psycopg
@@ -16,7 +16,7 @@ class DatabaseUnavailable(RuntimeError):
 
 
 @contextmanager
-def get_connection() -> Iterator[Connection]:
+def get_connection() -> Generator[Connection, None, None]:
     """Open a short-lived GaussDB connection without exposing its DSN."""
     dsn = get_gaussdb_dsn()
     if dsn is None:

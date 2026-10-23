@@ -1,4 +1,11 @@
 import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+BACKEND_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
+load_dotenv(BACKEND_ENV_FILE, override=False)
+load_dotenv(BACKEND_ENV_FILE.with_name(".env.local"), override=False)
 
 
 def get_allowed_origins() -> list[str]:
@@ -14,6 +21,21 @@ def get_gaussdb_dsn() -> str | None:
     """Read the private GaussDB connection string without exposing it in logs."""
     configured_dsn = os.getenv("GAUSSDB_DSN", "").strip()
     return configured_dsn or None
+
+
+def get_openweathermap_api_key() -> str | None:
+    """Read the optional private weather-service key from backend environment."""
+    configured_key = os.getenv("OPENWEATHERMAP_API_KEY", "").strip()
+    return configured_key or None
+
+def get_copernicus_credentials() -> tuple[str, str] | None:
+    """Read private Copernicus Data Space account credentials."""
+    username = os.getenv("COPERNICUS_USERNAME", "").strip()
+    password = os.getenv("COPERNICUS_PASSWORD", "").strip()
+    if not username or not password:
+        return None
+    return username, password
+
 
 def get_modelarts_inference_config() -> tuple[str, str] | None:
     """Return the configured HTTPS inference URL and private authorization token."""

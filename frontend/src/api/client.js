@@ -46,6 +46,33 @@ export async function searchSatelliteScenes(search) {
   return response.json()
 }
 
+export function weatherTileTemplate(layer) {
+  return `${apiBaseUrl}/api/v1/weather/tiles/${layer}/{z}/{x}/{y}.png`
+}
+
+export async function fetchWeatherOverview() {
+  const response = await request('/api/v1/weather/overview')
+  return response.json()
+}
+
+export async function fetchCurrentWeather(coordinates) {
+  const response = await request('/api/v1/weather/current', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      latitude: coordinates.latitude,
+      longitude: coordinates.longitude,
+    }),
+  })
+  return response.json()
+}
+
+export async function searchWeatherLocations(query) {
+  const parameters = new URLSearchParams({ q: query })
+  const response = await request(`/api/v1/weather/locations?${parameters}`)
+  return response.json()
+}
+
 export async function downloadAssessmentReport() {
   const response = await request('/api/v1/reports', {
     method: 'POST',

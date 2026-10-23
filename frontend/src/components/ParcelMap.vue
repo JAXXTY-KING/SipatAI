@@ -27,6 +27,22 @@
         <span class="flood-reference-swatch"></span>
         PhilSA flood sample (full source footprint) · 6 Jul 2025
       </label>
+      <label class="map-layer-toggle">
+        <input v-model="showWeather" type="checkbox" @change="setWeatherVisibility">
+        <span class="weather-layer-swatch"></span>
+        On-map current weather
+      </label>
+      <label class="map-layer-toggle">
+        <input v-model="showObservations" type="checkbox" @change="setObservationVisibility">
+        <span class="weather-layer-swatch"></span>
+        Live city observations (click for details)
+      </label>
+      <label class="weather-layer-select">
+        Weather layer
+        <select v-model="selectedWeatherLayer" :disabled="!showWeather" @change="updateWeatherLayer">
+          <option v-for="layer in weatherLayers" :key="layer.value" :value="layer.value">{{ layer.label }}</option>
+        </select>
+      </label>
       <button
         class="parcel-refresh-button"
         type="button"
@@ -36,6 +52,7 @@
         {{ isLoadingParcels ? 'Refreshing parcels…' : 'Refresh parcels' }}
       </button>
       <p class="parcel-map-status" role="status" aria-live="polite">{{ parcelStatus }}</p>
+      <p v-if="weatherStatus" class="parcel-map-status" role="status">{{ weatherStatus }}</p>
       <p v-if="damageStatus" class="parcel-map-status" role="status">{{ damageStatus }}</p>
       <p class="parcel-map-attribution">
         Historical sample:
@@ -43,6 +60,10 @@
         <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer">CC BY 4.0</a>.
         Full source footprint (119.86–122.52°E, 11.83–19.54°N; not nationwide);
         reference raster, not ground-truth validated or an assessment.
+      </p>
+      <p class="parcel-map-attribution">
+        Weather: <a href="https://openweathermap.org/api/weathermaps" target="_blank" rel="noreferrer">OpenWeatherMap</a>;
+        current contextual weather layer, not flood extent or satellite observation.
       </p>
       <p class="parcel-map-attribution">
         Regions: <a href="https://simplemaps.com/gis/country/ph" target="_blank" rel="noreferrer">SimpleMaps</a> ·
@@ -58,6 +79,7 @@
         <span v-if="showParcels"><i class="parcel-legend-mark"></i> Imported farm parcel</span>
         <span v-if="showDamage && hasDamageFeatures"><i class="damage-legend-mark"></i> Completed flood assessment</span>
         <span v-if="showFloodReference"><i class="flood-reference-legend-mark"></i> PhilSA observed flood reference · not an assessment</span>
+        <span v-if="showWeather"><i class="weather-legend-mark"></i> Current OpenWeatherMap layer · contextual only</span>
       </div>
     </details>
   </section>
@@ -66,10 +88,18 @@
 <script setup>
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import mapboxgl from 'mapbox-gl'
-import { fetchDamageMap, fetchParcelMap } from '../api/client'
+import { fetchDamageMap, fetchParcelMap, fetchWeatherOverview, weatherTileTemplate } from '../api/client'
 import { severityColors } from '../map/severity'
 
+const emit = defineEmits(['location-selected'])
 const mapToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN
+const weatherLayers = [
+  { value: 'precipitation_new', label: 'Precipitation' },
+  { value: 'clouds_new', label: 'Clouds' },
+  { value: 'temp_new', label: 'Temperature' },
+  { value: 'wind_new', label: 'Wind' },
+  { value: 'pressure_new', label: 'Pressure' },
+]
 const FLOOD_REFERENCE_EXTENT = {
   west: 119.86289120572579,
   south: 11.825563019671437,
@@ -83,9 +113,14 @@ const showRegions = ref(true)
 const showParcels = ref(true)
 const showDamage = ref(true)
 const showFloodReference = ref(false)
+const showWeather = ref(true)
+const showObservations = ref(true)
+const weatherStatus = ref('')
+const selectedWeatherLayer = ref('precipitation_new')
 const isLoadingParcels = ref(false)
 const hasDamageFeatures = ref(false)
 let map
+let selectionMarker
 let resizeObserver
 let moveTimer
 let mapStartupTimer
@@ -113,6 +148,17 @@ function setFloodReferenceVisibility() {
   if (showFloodReference.value) {
     fitFloodReferenceExtent()
   }
+}
+
+function setWeatherVisibility() {
+  setLayerVisibility('weather-current-layer', showWeather.value)
+}
+
+function updateWeatherLayer() {
+  if (!map?.getSource('weather-current')) return
+  if (map.getLayer('weather-current-layer')) map.removeLayer('weather-current-layer')
+  map.removeSource('weather-current')
+  addWeatherLayer()
 }
 
 function fitFloodReferenceExtent() {
@@ -220,6 +266,105 @@ function addAdministrativeRegionLayer() {
   setRegionVisibility()
 }
 
+function setObservationVisibility() {
+  setLayerVisibility('weather-observations-circle', showObservations.value)
+  setLayerVisibility('weather-observations-label', showObservations.value)
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (character) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]
+  ))
+}
+
+function weatherPopupHtml(properties) {
+  const observed = properties.observed_at ? new Date(properties.observed_at).toLocaleString() : 'unknown time'
+  const wind = properties.wind_speed_mps == null ? 'n/a' : `${Number(properties.wind_speed_mps).toFixed(1)} m/s`
+  return `<strong>${escapeHtml(properties.location_name)}</strong><br>`
+    + `${escapeHtml(properties.description)} · ${Number(properties.temperature_c).toFixed(1)}°C<br>`
+    + `Humidity ${escapeHtml(properties.humidity_percent)}% · Wind ${wind}<br>`
+    + `Rain (1 h) ${Number(properties.precipitation_1h_mm ?? 0).toFixed(1)} mm<br>`
+    + `<small>OpenWeatherMap · ${escapeHtml(observed)}</small>`
+}
+
+function addWeatherObservationLayer(collection) {
+  if (!map || map.getSource('weather-observations')) return
+  map.addSource('weather-observations', { type: 'geojson', data: collection })
+  map.addLayer({
+    id: 'weather-observations-circle',
+    type: 'circle',
+    source: 'weather-observations',
+    layout: { visibility: showObservations.value ? 'visible' : 'none' },
+    paint: {
+      'circle-radius': 15,
+      'circle-color': [
+        'interpolate', ['linear'], ['get', 'temperature_c'],
+        22, '#69d1c2', 28, '#f0d65a', 34, '#e56f49',
+      ],
+      'circle-stroke-color': '#17324d',
+      'circle-stroke-width': 2,
+    },
+  })
+  map.addLayer({
+    id: 'weather-observations-label',
+    type: 'symbol',
+    source: 'weather-observations',
+    layout: {
+      visibility: showObservations.value ? 'visible' : 'none',
+      'text-field': ['concat', ['to-string', ['round', ['get', 'temperature_c']]], '°'],
+      'text-size': 12,
+      'text-allow-overlap': true,
+    },
+    paint: { 'text-color': '#10202f' },
+  })
+  map.on('click', 'weather-observations-circle', (event) => {
+    const feature = event.features?.[0]
+    if (!feature) return
+    event.originalEvent.stopPropagation()
+    new mapboxgl.Popup({ closeButton: true, maxWidth: '260px' })
+      .setLngLat(feature.geometry.coordinates)
+      .setHTML(weatherPopupHtml(feature.properties))
+      .addTo(map)
+  })
+  map.on('mouseenter', 'weather-observations-circle', () => { map.getCanvas().style.cursor = 'pointer' })
+  map.on('mouseleave', 'weather-observations-circle', () => { map.getCanvas().style.cursor = '' })
+}
+
+function loadWeatherObservations() {
+  weatherStatus.value = 'Loading live weather observations…'
+  void fetchWeatherOverview()
+    .then((collection) => {
+      if (!map) return
+      addWeatherObservationLayer(collection)
+      const fetched = new Date(collection.fetched_at).toLocaleTimeString()
+      weatherStatus.value = `${collection.features.length} live observations · refreshed ${fetched}`
+    })
+    .catch((error) => {
+      weatherStatus.value = `Live weather unavailable: ${error instanceof Error ? error.message : 'service error'}`
+    })
+}
+
+function addWeatherLayer() {
+  map.addSource('weather-current', {
+    type: 'raster',
+    tiles: [weatherTileTemplate(selectedWeatherLayer.value)],
+    tileSize: 256,
+    maxzoom: 12,
+  })
+  map.addLayer({
+    id: 'weather-current-layer',
+    type: 'raster',
+    source: 'weather-current',
+    layout: {
+      visibility: showWeather.value ? 'visible' : 'none',
+    },
+    paint: {
+      'raster-opacity': 0.68,
+      'raster-fade-duration': 250,
+    },
+  }, 'admin-region-fill')
+}
+
 function addFloodReferenceLayer() {
   map.addSource('philsa-flood-reference', {
     type: 'image',
@@ -318,6 +463,8 @@ function initializeMapLayers(styleReady = false) {
     addAdministrativeRegionLayer()
     addFloodReferenceLayer()
     addParcelLayer()
+    addWeatherLayer()
+    loadWeatherObservations()
     map.on('moveend', scheduleParcelRefresh)
     void loadParcels()
     void fetchDamageMap()
@@ -352,6 +499,17 @@ onMounted(() => {
     attributionControl: true,
   })
   map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right')
+  map.on('click', (event) => {
+    const hitObservation = map.getLayer('weather-observations-circle')
+      && map.queryRenderedFeatures(event.point, { layers: ['weather-observations-circle'] }).length
+    if (hitObservation) return
+    selectionMarker?.remove()
+    selectionMarker = new mapboxgl.Marker({ color: '#277ca5' }).setLngLat(event.lngLat).addTo(map)
+    emit('location-selected', {
+      latitude: Number(event.lngLat.lat.toFixed(6)),
+      longitude: Number(event.lngLat.lng.toFixed(6)),
+    })
+  })
   map.once('load', () => {
     window.clearTimeout(mapStartupTimer)
     initializeMapLayers(true)

@@ -31,6 +31,11 @@ Follow the exact Windows steps in `docs/setup_windows.md`. The frontend runs sep
 - `GET /api/v1/parcels/map?west=<longitude>&south=<latitude>&east=<longitude>&north=<latitude>` (imported parcels within the current map viewport)
 - `POST /api/v1/analyze` (requires a configured ModelArts endpoint)
 - `POST /api/v1/scenes/search` (Copernicus Data Space Sentinel catalogue)
+- `POST /api/v1/scenes/download` (copies a Sentinel product to OBS; requires Copernicus and OBS credentials)
+- `GET /api/v1/weather/locations?q=<Philippine place name>` (backend geocoding)
+- `GET /api/v1/weather/overview` (live observations at reference Philippine cities, cached 10 minutes, shown as clickable map markers)
+- `POST /api/v1/weather/current` (current weather for selected coordinates)
+- `GET /api/v1/weather/tiles/{layer}/{z}/{x}/{y}.png` (backend-proxied current weather map layer)
 - `POST /api/v1/reports`
 
 Interactive API documentation is available at `/docs` while the backend is running.

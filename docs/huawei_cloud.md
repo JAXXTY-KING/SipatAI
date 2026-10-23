@@ -25,3 +25,9 @@ Official references: [Huawei OBS Python SDK installation](https://support.huawei
 ## GaussDB/PostGIS
 
 Set `GAUSSDB_DSN` in the backend environment after provisioning a PostGIS-enabled Huawei GaussDB instance. Keep the database password private. Apply schema changes only through the migration runner documented in [gaussdb_postgis.md](gaussdb_postgis.md).
+
+## OpenWeatherMap
+
+The backend reads `OPENWEATHERMAP_API_KEY` from `backend/.env` or the ignored `backend/.env.local` file. `GET /api/v1/weather/locations?q=<place>` searches Philippine place names; `POST /api/v1/weather/current` returns normalized current conditions for the selected coordinates. The map can select coordinates, and users can also search by place name or enter coordinates manually. The map also provides current precipitation, cloud, temperature, wind, and pressure tiles through `GET /api/v1/weather/tiles/{layer}/{z}/{x}/{y}.png`; the backend proxies these tiles so the provider key stays private. Weather layers are contextual only, not flood extent or satellite observations, and are not MindSpore model inputs.
+
+The key previously shared in chat is exposed; rotate it in the OpenWeatherMap account and replace it only in `backend/.env.local`. Never put the key in frontend variables, tracked files, or chat. `.env.local` is excluded by `.gitignore`.

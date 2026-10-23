@@ -11,6 +11,7 @@ SipatAI is intended to detect flood extent from Sentinel imagery, measure impact
 - Vue dashboard, flood map, report center, and satellite-scene search.
 - FastAPI backend with health, assessment, report, ModelArts, and scene-search routes.
 - Live Copernicus Data Space search for Sentinel-1 GRD and Sentinel-2 L2A over the Philippines, by date, with optional Sentinel-2 cloud filtering. Real catalog results were verified.
+- Backend-only OpenWeatherMap place search and current conditions, plus current precipitation, cloud, temperature, wind, and pressure overlays on the map. Tile requests are proxied by the backend so the provider key is not exposed in the browser. A live lookup for Bacarra, Ilocos Norte and a live precipitation tile succeeded. Weather is contextual only and is not a flood-model input.
 - MindSpore 2.10.0 ResNet-50 U-Net, shared input/class configuration, weighted focal-Dice loss, tile reader, training entry point, and MindIR exporter. CPU model/loss and dataset smoke tests passed.
 - Backend integration code for ModelArts inference and Huawei OBS storage.
 - Versioned GaussDB/PostGIS schema and spatial queries for flood/parcel intersection and affected area calculations.

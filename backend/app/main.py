@@ -8,6 +8,7 @@ from app.api.routes.parcels import router as parcels_router
 from app.api.routes.reports import router as reports_router
 from app.api.routes.scenes import router as scenes_router
 from app.api.routes.summary import router as summary_router
+from app.api.routes.weather import router as weather_router
 from app.core.config import get_allowed_origins
 
 app = FastAPI(
@@ -31,3 +32,4 @@ app.include_router(damage_map_router, prefix="/api/v1")
 app.include_router(parcels_router, prefix="/api/v1")
 app.include_router(reports_router, prefix="/api/v1")
 app.include_router(scenes_router, prefix="/api/v1")
+app.include_router(weather_router, prefix="/api/v1")

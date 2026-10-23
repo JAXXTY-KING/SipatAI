@@ -37,7 +37,7 @@ The system must not replace unavailable operational data with fabricated assessm
 - No Huawei OBS bucket, ModelArts inference endpoint, or GaussDB/PostGIS instance is configured.
 - There is no authorized nationwide farm-parcel dataset loaded into the database.
 - No parcel dataset is currently cleared for import into this project. Geoportal/LMB is a verified cadastral-data lead but its available footprint is selected Metro Manila, not the Ilocos Norte study area; the portal has not provided an extract. An ArcGIS Online service for Midori Highlands in Clark returns subdivision polygons, but its license field is blank and its sample attributes label the feature commercial, not agricultural; public query access is not a reuse license. PHIVOLCS metadata remains inaccessible, the public NAMRIA REST inventory did not expose a parcel layer, and SimpleMaps provides administrative regions rather than lots.
-- Sentinel scene search is implemented, but authenticated product download to OBS is not yet implemented.
+- Sentinel scene search is implemented. `POST /api/v1/scenes/download` streams a product from Copernicus (using `COPERNICUS_USERNAME`/`COPERNICUS_PASSWORD`) into OBS under `raw/<collection>/`. It is unit-tested for validation and fail-closed behavior only; it has not been run against live Copernicus or OBS.
 - SNAP/GDAL preprocessing is not implemented end to end.
 - The MindSpore model has no trained weights. Training requires labeled tiles and approved hyperparameters.
 - ModelArts has no deployed MindIR model. The `/api/v1/analyze` payload must be matched to the deployed model's actual request/response contract.

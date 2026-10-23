@@ -4,6 +4,15 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
+class SceneDownloadRequest(BaseModel):
+    """A catalogue product to copy into the private OBS bucket."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    collection: Literal["sentinel-1-grd", "sentinel-2-l2a"]
+    product_name: str = Field(min_length=10, max_length=200, pattern=r"^[A-Za-z0-9_\-]+(\.SAFE)?$")
+
+
 class SceneSearchRequest(BaseModel):
     """Spatial and temporal search criteria for Sentinel scene discovery."""
 

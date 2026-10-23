@@ -22,10 +22,15 @@
         <div><strong>Spatial impact assessment</strong><p>PostGIS measures overlap; parcels alone do not imply damage.</p></div>
       </article>
     </section>
-    <ParcelMap />
+    <WeatherContextPanel :coordinates="weatherCoordinates" />
+    <ParcelMap @location-selected="weatherCoordinates = $event" />
   </div>
 </template>
 
 <script setup>
 import ParcelMap from '../components/ParcelMap.vue'
+import WeatherContextPanel from '../components/WeatherContextPanel.vue'
+import { ref } from 'vue'
+
+const weatherCoordinates = ref(null)
 </script>
