@@ -8,6 +8,8 @@ Agricultural parcel boundaries are system data, not an end-user upload task. A c
 
 The map uses Mapbox Streets and includes a separately labeled SimpleMaps administrative-region reference overlay and the full-footprint PhilSA historical observed-flood sample, rasterized for map display. Neither is farm-parcel data or a SipatAI damage assessment; the flood sample is explicitly marked as not ground-truth validated.
 
+The map explorer is the landing page. Search for a Philippine place to center the map and see current weather, or select a point on the map and check its weather. Use **Layers & data** to control the reference, parcel, assessment, and weather overlays. The assessment dashboard remains available from the navigation.
+
 ## Project layout
 
 - `frontend/`: Vue 3 application deployed as a Vite site.

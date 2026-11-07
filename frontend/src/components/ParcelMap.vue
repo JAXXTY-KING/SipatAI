@@ -5,15 +5,19 @@
       <strong>Map service not configured</strong>
       <span>Set a restricted public Mapbox token in frontend/.env.local to display the map.</span>
     </div>
+    <p v-if="mapError" class="map-error-banner" role="alert">{{ mapError }}</p>
 
-    <div v-if="mapToken" class="parcel-map-tools" aria-label="Map layers and parcel status">
+    <details v-if="mapToken" class="parcel-map-tools" aria-label="Map layers and parcel status">
+      <summary>Layers &amp; data <span aria-hidden="true">＋</span></summary>
+      <div class="map-tools-content">
+      <p class="map-tools-heading">MAP LAYERS</p>
       <label class="map-layer-toggle">
         <input v-model="showRegions" type="checkbox" @change="setRegionVisibility">
         <span class="region-swatch"></span>
         Administrative regions (reference only)
       </label>
       <label class="map-layer-toggle">
-        <input v-model="showParcels" type="checkbox" @change="setLayerVisibility('farm-parcel-fill', showParcels)">
+        <input v-model="showParcels" type="checkbox" @change="setParcelVisibility">
         <span class="parcel-swatch"></span>
         Imported parcels
       </label>
@@ -70,9 +74,10 @@
         <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer">CC BY 4.0</a>;
         administrative boundaries, not parcels.
       </p>
-    </div>
+      </div>
+    </details>
 
-    <details v-if="mapToken" class="map-legend parcel-legend" open>
+    <details v-if="mapToken" class="map-legend parcel-legend">
       <summary>Legend</summary>
       <div class="parcel-legend-items">
         <span v-if="showRegions"><i class="region-legend-mark"></i> Administrative region · reference only</span>
@@ -108,6 +113,7 @@ const FLOOD_REFERENCE_EXTENT = {
 }
 const mapElement = ref(null)
 const parcelStatus = ref('Waiting for parcel data…')
+const mapError = ref('')
 const damageStatus = ref('')
 const showRegions = ref(true)
 const showParcels = ref(true)
@@ -132,6 +138,21 @@ function setLayerVisibility(layerId, visible) {
     map.setLayoutProperty(layerId, 'visibility', visible ? 'visible' : 'none')
   }
 }
+
+function setParcelVisibility() {
+  setLayerVisibility('farm-parcel-fill', showParcels.value)
+  setLayerVisibility('farm-parcel-outline', showParcels.value)
+}
+
+function focusLocation(coordinates) {
+  if (!map) return
+  const lngLat = [coordinates.longitude, coordinates.latitude]
+  selectionMarker?.remove()
+  selectionMarker = new mapboxgl.Marker({ color: '#277ca5' }).setLngLat(lngLat).addTo(map)
+  map.flyTo({ center: lngLat, zoom: Math.max(map.getZoom(), 10), duration: 1200 })
+}
+
+defineExpose({ focusLocation })
 
 function setDamageVisibility() {
   setLayerVisibility('flood-damage-fill', showDamage.value)
@@ -484,6 +505,7 @@ function initializeMapLayers(styleReady = false) {
     parcelStatus.value = error instanceof Error
       ? `Map layers could not be initialized: ${error.message}`
       : 'Map layers could not be initialized.'
+    mapError.value = parcelStatus.value
   }
 }
 
@@ -512,12 +534,14 @@ onMounted(() => {
   })
   map.once('load', () => {
     window.clearTimeout(mapStartupTimer)
+    mapError.value = ''
     initializeMapLayers(true)
   })
   initializeMapLayers()
   mapStartupTimer = window.setTimeout(() => {
     if (!mapLayersInitialized) {
-      parcelStatus.value = 'Map tiles did not load. Check the Mapbox token and network connection.'
+      mapError.value = 'Map tiles did not load. Check the Mapbox token and network connection.'
+      parcelStatus.value = mapError.value
     }
   }, 12000)
   resizeObserver = new ResizeObserver(() => map?.resize())

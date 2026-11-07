@@ -2,21 +2,22 @@
   <section class="weather-context" aria-labelledby="weather-title">
     <div class="weather-heading">
       <div>
-        <p class="eyebrow">WEATHER CONTEXT</p>
-        <h2 id="weather-title">Current conditions</h2>
+        <p class="eyebrow">FIND A PLACE</p>
+        <h2 id="weather-title">Explore local weather</h2>
       </div>
     </div>
-    <p class="connection-note">Search a Philippine city or municipality, or select a point on the map.</p>
+    <p class="connection-note">Search a city or municipality, or select a point on the map.</p>
     <form class="weather-search-form" @submit.prevent="searchLocations">
       <label>
-        Place name
-        <input v-model.trim="query" type="search" minlength="2" maxlength="120" placeholder="For example, Bacarra, Ilocos Norte" required />
+        <span class="visually-hidden">Place name</span>
+        <input v-model.trim="query" type="search" minlength="2" maxlength="120" placeholder="Search a place in the Philippines" required />
       </label>
       <button class="button button-primary" type="submit" :disabled="isSearching || query.trim().length < 2">
         {{ isSearching ? 'Searching…' : 'Search places' }}
       </button>
     </form>
     <p v-if="message" class="connection-note" role="status">{{ message }}</p>
+    <p v-if="locations.length" class="connection-note">Select a result to show it on the map.</p>
     <ul v-if="locations.length" class="weather-location-results" aria-label="Matching places">
       <li v-for="location in locations" :key="locationKey(location)">
         <button class="weather-location-option" type="button" @click="selectLocation(location)">
@@ -64,6 +65,7 @@ import { computed, ref, watch } from 'vue'
 import { fetchCurrentWeather, searchWeatherLocations } from '../api/client'
 
 const props = defineProps({ coordinates: { type: Object, default: null } })
+const emit = defineEmits(['location-selected'])
 const query = ref('')
 const locations = ref([])
 const selectedLocation = ref(null)
@@ -74,6 +76,8 @@ const isLoading = ref(false)
 const isSearching = ref(false)
 const latitudeInput = ref('')
 const longitudeInput = ref('')
+let weatherRequestSequence = 0
+let searchRequestSequence = 0
 const manualCoordinatesReady = computed(() => {
   const latitude = Number(latitudeInput.value)
   const longitude = Number(longitudeInput.value)
@@ -88,6 +92,8 @@ const manualCoordinatesReady = computed(() => {
 })
 
 watch(() => props.coordinates, () => {
+  weatherRequestSequence += 1
+  isLoading.value = false
   if (props.coordinates) {
     latitudeInput.value = String(props.coordinates.latitude)
     longitudeInput.value = String(props.coordinates.longitude)
@@ -95,6 +101,13 @@ watch(() => props.coordinates, () => {
     selectedLocation.value = null
   }
   weather.value = null
+  message.value = ''
+})
+
+watch(query, () => {
+  searchRequestSequence += 1
+  locations.value = []
+  isSearching.value = false
   message.value = ''
 })
 
@@ -107,31 +120,44 @@ function locationKey(location) {
 }
 
 function selectLocation(location) {
+  weatherRequestSequence += 1
   selectedLocation.value = location
   coordinates.value = { latitude: location.latitude, longitude: location.longitude }
+  latitudeInput.value = String(location.latitude)
+  longitudeInput.value = String(location.longitude)
   weather.value = null
   message.value = ''
+  locations.value = []
+  emit('location-selected', coordinates.value)
+  void loadWeather()
 }
 
 async function searchLocations() {
   if (query.value.trim().length < 2) return
+  const requestId = ++searchRequestSequence
+  const searchQuery = query.value.trim()
   isSearching.value = true
   locations.value = []
-  weather.value = null
   message.value = ''
   try {
-    const result = await searchWeatherLocations(query.value.trim())
+    const result = await searchWeatherLocations(searchQuery)
+    if (requestId !== searchRequestSequence) return
     locations.value = result.locations ?? []
     if (!locations.value.length) message.value = 'No matching Philippine places were found.'
   } catch (error) {
-    message.value = error instanceof Error ? error.message : 'Place search is unavailable.'
+    if (requestId === searchRequestSequence) {
+      message.value = error instanceof TypeError
+        ? 'Could not reach the API. Check that the backend is running and try again.'
+        : error instanceof Error ? error.message : 'Place search is unavailable.'
+    }
   } finally {
-    isSearching.value = false
+    if (requestId === searchRequestSequence) isSearching.value = false
   }
 }
 
 function useManualCoordinates() {
   if (!manualCoordinatesReady.value) return
+  weatherRequestSequence += 1
   selectedLocation.value = null
   coordinates.value = {
     latitude: Number(latitudeInput.value),
@@ -139,6 +165,7 @@ function useManualCoordinates() {
   }
   weather.value = null
   message.value = ''
+  emit('location-selected', coordinates.value)
   void loadWeather()
 }
 
@@ -152,15 +179,19 @@ function formatTime(value) {
 
 async function loadWeather() {
   if (!coordinates.value) return
+  const requestId = ++weatherRequestSequence
   isLoading.value = true
   message.value = ''
   try {
-    weather.value = await fetchCurrentWeather(coordinates.value)
+    const result = await fetchCurrentWeather(coordinates.value)
+    if (requestId === weatherRequestSequence) weather.value = result
   } catch (error) {
-    weather.value = null
-    message.value = error instanceof Error ? error.message : 'Current weather is unavailable.'
+    if (requestId === weatherRequestSequence) {
+      weather.value = null
+      message.value = error instanceof Error ? error.message : 'Current weather is unavailable.'
+    }
   } finally {
-    isLoading.value = false
+    if (requestId === weatherRequestSequence) isLoading.value = false
   }
 }
 </script>

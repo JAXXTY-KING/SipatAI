@@ -192,3 +192,49 @@ tbody tr:last-child td { border-bottom: 0; }
   .page-view { padding: 2rem 2rem 3rem; }
   .scene-search-form { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
+
+/* Map explorer */
+.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.map-workspace { display: flex; flex-direction: column; min-height: calc(100dvh - 6.25rem); background: #f2f6f3; }
+.map-stage { order: -1; height: 55dvh; min-height: 23rem; padding: .65rem; }
+.map-stage .parcel-map-frame { width: 100%; height: 100%; min-height: 0; border: 1px solid #d5e0dc; border-radius: 1rem; box-shadow: 0 8px 26px rgba(31, 69, 54, .08); }
+.explore-panel { padding: 1.4rem; background: #fff; }
+.explore-intro { margin-bottom: 1.4rem; }
+.explore-intro .eyebrow { color: #438269; letter-spacing: .12em; }
+.explore-intro h1 { max-width: 18rem; margin: .6rem 0; color: #173a2d; font-size: clamp(1.7rem, 3vw, 2.2rem); letter-spacing: -.04em; }
+.explore-intro > p:last-child { max-width: 21rem; margin: 0; color: #718078; font-size: .88rem; line-height: 1.6; }
+.map-workspace .weather-context { gap: .75rem; margin: 0; padding: 1.15rem; border: 1px solid #e0eae4; border-radius: .9rem; background: #f9fbf9; }
+.map-workspace .weather-context .eyebrow { color: #6a8c7c; font-size: .62rem; }
+.map-workspace .weather-heading h2 { color: #1d4031; font-size: 1rem; }
+.map-workspace .weather-context .connection-note { margin: 0; line-height: 1.5; }
+.map-workspace .weather-search-form { grid-template-columns: 1fr; }
+.map-workspace .weather-search-form input, .map-workspace .weather-form input { border-color: #d7e3dc; border-radius: .5rem; }
+.map-workspace .button { border-radius: .5rem; }
+.map-workspace .weather-form { grid-template-columns: 1fr 1fr; }
+.map-workspace .weather-form .button { grid-column: 1 / -1; }
+.explore-note { display: flex; gap: .65rem; margin-top: 1.2rem; color: #74837b; font-size: .75rem; line-height: 1.5; }
+.explore-note p { margin: 0; }
+.explore-note strong { color: #50685c; }
+.explore-note-icon { display: grid; flex: 0 0 1.2rem; width: 1.2rem; height: 1.2rem; place-items: center; border: 1px solid #a9beb1; border-radius: 50%; color: #59806b; font-weight: 700; }
+.map-error-banner { position: absolute; z-index: 3; left: .8rem; right: .8rem; bottom: 4.5rem; margin: 0; padding: .7rem .85rem; border: 1px solid #e8d4aa; border-radius: .6rem; background: #fff8e9; color: #74521d; font-size: .8rem; }
+.map-workspace .parcel-map-tools { position: absolute; top: 4.8rem; left: auto; right: .8rem; z-index: 3; display: block; width: min(21rem, calc(100% - 1.6rem)); max-width: none; max-height: calc(100% - 6rem); overflow-y: auto; padding: 0; border: 1px solid #dbe7df; border-radius: .75rem; background: rgba(255, 255, 255, .98); box-shadow: 0 5px 22px rgba(27, 62, 46, .12); }
+.map-workspace .parcel-map-tools:not([open]) { width: auto; }
+.parcel-map-tools > summary { display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-height: 2.75rem; padding: .65rem .85rem; color: #244b38; font-size: .8rem; font-weight: 700; cursor: pointer; list-style: none; }
+.parcel-map-tools > summary::-webkit-details-marker { display: none; }
+.parcel-map-tools > summary span { color: #5b8b70; font-size: 1rem; }
+.map-tools-content { display: grid; gap: .65rem; padding: .2rem .85rem .85rem; }
+.map-tools-heading { margin: .2rem 0 0; color: #8a9b91; font-size: .62rem; font-weight: 700; letter-spacing: .1em; }
+.map-workspace .parcel-legend { top: auto; left: .8rem; right: auto; bottom: 1.7rem; max-width: calc(100% - 1.6rem); border-radius: .6rem; box-shadow: 0 5px 22px rgba(27, 62, 46, .12); }
+.map-workspace .map-message { min-height: 0; }
+@media (min-width: 768px) {
+  .map-workspace { flex-direction: row; }
+  .explore-panel { flex: 0 0 21rem; min-width: 0; padding: 1.6rem 1.25rem; overflow-y: auto; border-right: 1px solid #e1ebe4; }
+  .map-stage { order: 0; flex: 1; min-width: 0; height: calc(100dvh - 6.25rem); min-height: 35rem; padding: .9rem; }
+}
+@media (min-width: 1024px) {
+  .app-shell-map { grid-template-columns: 13rem minmax(0, 1fr); }
+  .app-shell-map .sidebar { background: #fbfdfb; }
+  .app-shell-map .topbar { background: #fbfdfb; }
+  .map-stage { height: calc(100dvh - 3.75rem); }
+  .explore-panel { height: calc(100dvh - 3.75rem); }
+}
