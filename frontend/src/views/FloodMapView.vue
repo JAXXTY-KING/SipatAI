@@ -12,22 +12,41 @@
       />
       <div class="explore-note">
         <span class="explore-note-icon" aria-hidden="true">i</span>
-        <p><strong>Context, not a forecast.</strong> Weather and historical flood layers are not damage assessments.</p>
+        <p><strong>Screening, not a prediction.</strong> Forecast rain and elevation provide a coarse prototype view, not a typhoon track, official warning, or flood boundary.</p>
       </div>
     </aside>
     <div class="map-stage">
-      <ParcelMap ref="parcelMap" @location-selected="weatherCoordinates = $event" />
+      <ParcelMap
+        ref="parcelMap"
+        :initial-location="initialLocation"
+        @location-selected="weatherCoordinates = $event"
+      />
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import ParcelMap from '../components/ParcelMap.vue'
 import WeatherContextPanel from '../components/WeatherContextPanel.vue'
 
 const weatherCoordinates = ref(null)
 const parcelMap = ref(null)
+const route = useRoute()
+const initialLocation = computed(() => {
+  const latitude = Number(route.query.lat)
+  const longitude = Number(route.query.lon)
+  if (
+    !Number.isFinite(latitude)
+    || !Number.isFinite(longitude)
+    || latitude < 4.5
+    || latitude > 21.2
+    || longitude < 116.9
+    || longitude > 126.6
+  ) return null
+  return { latitude, longitude }
+})
 
 function focusLocation(coordinates) {
   parcelMap.value?.focusLocation(coordinates)

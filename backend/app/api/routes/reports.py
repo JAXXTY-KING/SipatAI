@@ -2,10 +2,35 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from app.db.session import DatabaseNotConfigured, DatabaseUnavailable
+from app.integrations.flood_screening_client import (
+    FloodScreeningError,
+    get_nationwide_flood_screening,
+)
 from app.services.assessment_service import AssessmentNotFound
-from app.services.report_service import generate_latest_assessment_report
+from app.services.report_service import (
+    create_flood_screening_report,
+    generate_latest_assessment_report,
+)
 
 router = APIRouter(prefix="/reports", tags=["reports"])
+
+
+@router.post("/flood-screening")
+async def generate_flood_screening_report() -> StreamingResponse:
+    """Generate a PDF brief from the latest public forecast-screening data."""
+    try:
+        screening = await get_nationwide_flood_screening()
+        report_file = create_flood_screening_report(screening)
+    except FloodScreeningError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=502, detail="Forecast screening data cannot be reported.") from error
+
+    return StreamingResponse(
+        report_file,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="sipatai-rainfall-screening-brief.pdf"'},
+    )
 
 
 @router.post("")

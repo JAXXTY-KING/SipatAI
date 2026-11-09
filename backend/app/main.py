@@ -23,6 +23,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type"],
+    expose_headers=["X-Himawari-Observation-Time", "X-Himawari-Band"],
 )
 
 app.include_router(health_router)

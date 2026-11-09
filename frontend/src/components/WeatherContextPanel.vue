@@ -50,13 +50,13 @@
     </details>
     <dl v-if="weather" class="weather-values">
       <div><dt>Location</dt><dd>{{ weather.location_name || `${weather.latitude}, ${weather.longitude}` }}</dd></div>
-      <div><dt>Observed (UTC)</dt><dd>{{ formatTime(weather.observed_at) }}</dd></div>
+      <div><dt>Model time (UTC)</dt><dd>{{ formatTime(weather.observed_at) }}</dd></div>
       <div><dt>Condition</dt><dd>{{ weather.condition }} · {{ weather.description }}</dd></div>
       <div><dt>Temperature</dt><dd>{{ weather.temperature_c }} °C</dd></div>
       <div><dt>Humidity</dt><dd>{{ weather.humidity_percent }}%</dd></div>
       <div><dt>Rain (last hour)</dt><dd>{{ weather.precipitation_1h_mm }} mm</dd></div>
     </dl>
-    <p v-if="weather" class="weather-disclaimer">Weather is contextual information only; it is not a flood-model input or damage assessment.</p>
+    <p v-if="weather" class="weather-disclaimer">Open-Meteo model conditions are contextual guidance, not a local station observation, flood-model input, or damage assessment.</p>
   </section>
 </template>
 

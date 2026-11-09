@@ -55,6 +55,32 @@ export async function fetchWeatherOverview() {
   return response.json()
 }
 
+export async function fetchFloodScreening() {
+  const response = await request('/api/v1/weather/flood-screening')
+  return response.json()
+}
+
+export async function fetchWindForecast() {
+  const response = await request('/api/v1/weather/wind-forecast')
+  return response.json()
+}
+
+export async function fetchHimawariFrames(band) {
+  const parameters = new URLSearchParams({ band })
+  const response = await request(`/api/v1/weather/himawari/frames?${parameters}`)
+  return response.json()
+}
+
+export async function fetchHimawariImage(band, timeCode) {
+  const parameters = new URLSearchParams({ band, time_code: timeCode })
+  const response = await request(`/api/v1/weather/himawari/latest.jpg?${parameters}`)
+  return {
+    image: await response.blob(),
+    observedAt: response.headers.get('X-Himawari-Observation-Time'),
+    band: response.headers.get('X-Himawari-Band'),
+  }
+}
+
 export async function fetchCurrentWeather(coordinates) {
   const response = await request('/api/v1/weather/current', {
     method: 'POST',
@@ -78,4 +104,23 @@ export async function downloadAssessmentReport() {
     method: 'POST',
   })
   return response.blob()
+}
+
+export async function downloadFloodScreeningReport() {
+  const response = await request('/api/v1/reports/flood-screening', {
+    method: 'POST',
+  })
+  return response.blob()
+}
+
+export async function downloadSatelliteScene(scene) {
+  const response = await request('/api/v1/scenes/download', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      collection: scene.collection,
+      product_name: scene.productName,
+    }),
+  })
+  return response.json()
 }

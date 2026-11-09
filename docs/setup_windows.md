@@ -88,7 +88,28 @@ Start the website:
 npm run dev
 ```
 
-Vite prints a local website address, normally http://localhost:5173. Open the address shown in the terminal.
+Keep this frontend terminal running too. Vite prints a local website address, normally `http://localhost:5173`; open the exact **Local** address shown in the terminal. The app needs both terminals: Vite serves the website, while Uvicorn serves weather and other API requests.
+
+After the page opens:
+
+1. Confirm the backend is still running by opening http://127.0.0.1:8000/health in a browser. It should return `{"status":"ok"}`.
+2. In **Map layers → Weather type**, choose rainfall screening, clouds, wind, precipitation, temperature, or pressure. The weather forecast layers load from the backend.
+3. If you change `frontend/.env.local`, stop and restart Vite so it reads the new settings.
+
+### If the app says “Failed to fetch”
+
+“Failed to fetch” usually means the browser cannot reach the API; it does not by itself identify a weather-provider problem.
+
+- If http://127.0.0.1:8000/health does not load, start or restart the backend in the `backend` terminal:
+
+  ```powershell
+  cd backend
+  .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload
+  ```
+
+- If the health check works but the page still fails, verify `frontend/.env.local` contains `VITE_API_BASE_URL=http://127.0.0.1:8000`, then stop and restart Vite.
+- Keep both terminal windows open. If either server exits or its terminal is closed, restart that server and refresh the browser.
+- Parcel and completed-assessment data can still report unavailable until GaussDB is configured and contains authorized data. This does not prevent the public Open-Meteo forecast layers from loading.
 
 ## MindSpore and Huawei Cloud
 

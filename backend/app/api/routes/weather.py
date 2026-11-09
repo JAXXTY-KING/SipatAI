@@ -6,24 +6,93 @@ from app.integrations.openweathermap_client import (
     WEATHER_MAP_LAYERS,
     WeatherConfigurationError,
     WeatherServiceError,
-    get_current_weather,
     get_weather_overview,
     get_weather_tile,
+)
+from app.integrations.open_meteo_weather_client import (
+    OpenMeteoWeatherError,
+    get_current_weather,
     search_locations,
+)
+from app.integrations.flood_screening_client import (
+    FloodScreeningError,
+    get_nationwide_flood_screening,
+    get_nationwide_wind_forecast,
+)
+from app.integrations.himawari_client import (
+    BANDS as HIMAWARI_BANDS,
+    HimawariServiceError,
+    get_himawari_frames,
+    get_himawari_image,
+    get_latest_himawari_image,
 )
 from app.schemas.weather import WeatherRequest
 
 router = APIRouter(prefix="/weather", tags=["weather context"])
 
 
+@router.get("/himawari/frames", include_in_schema=False)
+async def read_himawari_frames(
+    band: str = Query(default="b13", pattern="^(b13|b03|cve|ngt|dms|arm)$"),
+) -> dict[str, Any]:
+    """Return recent JMA image times for live map playback."""
+    try:
+        return {"band": band, "frames": await get_himawari_frames(band)}
+    except HimawariServiceError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+
+@router.get("/himawari/latest.jpg", include_in_schema=False)
+async def read_latest_himawari_image(
+    band: str = Query(default="b13", pattern="^(b13|b03|cve|ngt|dms|arm)$"),
+    time_code: str | None = Query(default=None, pattern="^\\d{4}$"),
+) -> Response:
+    """Proxy a selected timestamped JMA Himawari-9 image."""
+    try:
+        if time_code:
+            image, observed_at = await get_himawari_image(band, time_code)
+        else:
+            image, observed_at = await get_latest_himawari_image(band)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except HimawariServiceError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+    return Response(
+        content=image,
+        media_type="image/jpeg",
+        headers={
+            "Cache-Control": "public, max-age=300",
+            "X-Himawari-Observation-Time": observed_at,
+            "X-Himawari-Band": HIMAWARI_BANDS[band],
+        },
+    )
+
+
+@router.get("/flood-screening")
+async def read_flood_screening() -> dict[str, Any]:
+    """Return a nationwide, forecast-rainfall screening layer."""
+    try:
+        return await get_nationwide_flood_screening()
+    except FloodScreeningError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+
+@router.get("/wind-forecast")
+async def read_wind_forecast() -> dict[str, Any]:
+    """Return a short-range regional wind forecast from Open-Meteo."""
+    try:
+        return await get_nationwide_wind_forecast()
+    except FloodScreeningError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+
 @router.get("/locations")
 async def search_weather_locations(q: str = Query(min_length=2, max_length=120)) -> dict[str, Any]:
-    """Search Philippine place names without exposing the provider key."""
+    """Search Philippine place names using Open-Meteo's public geocoding service."""
     try:
         return {"locations": await search_locations(q)}
-    except WeatherConfigurationError as error:
-        raise HTTPException(status_code=503, detail=str(error)) from error
-    except WeatherServiceError as error:
+    except OpenMeteoWeatherError as error:
         raise HTTPException(status_code=502, detail=str(error)) from error
 
 
@@ -67,10 +136,8 @@ async def read_weather_overview() -> dict[str, Any]:
 
 @router.post("/current")
 async def read_current_weather(request: WeatherRequest) -> dict[str, Any]:
-    """Return current provider weather for a selected map coordinate."""
+    """Return current Open-Meteo model conditions for a selected coordinate."""
     try:
         return await get_current_weather(request.latitude, request.longitude)
-    except WeatherConfigurationError as error:
-        raise HTTPException(status_code=503, detail=str(error)) from error
-    except WeatherServiceError as error:
+    except OpenMeteoWeatherError as error:
         raise HTTPException(status_code=502, detail=str(error)) from error
