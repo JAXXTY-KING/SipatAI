@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes.damage_map import router as damage_map_router
+from app.api.routes.flood_model import router as flood_model_router
 from app.api.routes.analyze import router as analyze_router
 from app.api.routes.health import router as health_router
 from app.api.routes.parcels import router as parcels_router
@@ -34,3 +35,4 @@ app.include_router(parcels_router, prefix="/api/v1")
 app.include_router(reports_router, prefix="/api/v1")
 app.include_router(scenes_router, prefix="/api/v1")
 app.include_router(weather_router, prefix="/api/v1")
+app.include_router(flood_model_router, prefix="/api/v1")

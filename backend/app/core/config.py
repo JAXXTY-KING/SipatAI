@@ -4,6 +4,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 BACKEND_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
+REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 load_dotenv(BACKEND_ENV_FILE, override=False)
 load_dotenv(BACKEND_ENV_FILE.with_name(".env.local"), override=False)
 
@@ -35,6 +36,14 @@ def get_copernicus_credentials() -> tuple[str, str] | None:
     if not username or not password:
         return None
     return username, password
+
+
+def get_flood_model_checkpoint() -> Path:
+    """Return the trained MindSpore checkpoint used for local flood inference."""
+    configured_path = os.getenv("SIPATAI_MODEL_CHECKPOINT", "").strip()
+    if configured_path:
+        return Path(configured_path).expanduser().resolve()
+    return REPOSITORY_ROOT / "ml" / "artifacts" / "checkpoints" / "sipatai-best.ckpt"
 
 
 def get_modelarts_inference_config() -> tuple[str, str] | None:

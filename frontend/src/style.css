@@ -118,6 +118,12 @@ tbody tr:last-child td { border-bottom: 0; }
 .wind-forecast-swatch, .wind-forecast-legend-mark { width: .8rem; height: .8rem; border: 1px solid #278c9a; background: linear-gradient(90deg, #5bd4dd, #ffd94d 55%, #f03b43); }
 .parcel-refresh-button { justify-self: start; min-height: 2rem; padding: .35rem .55rem; border: 1px solid var(--line); border-radius: 3px; background: var(--paper); color: var(--green-dark); font-size: .73rem; font-weight: 650; cursor: pointer; }
 .parcel-refresh-button:disabled { opacity: .65; cursor: wait; }
+.ai-flood-badge { margin-left: .4rem; padding: .1rem .4rem; border-radius: 3px; font-size: .64rem; font-weight: 700; }
+.ai-flood-badge-ready { background: #edf5f0; color: var(--green-dark); border: 1px solid #bfd6cb; }
+.ai-flood-badge-off { background: #fff8e9; color: #74521d; border: 1px solid #e8d4aa; }
+.ai-flood-error { color: #a93d32; }
+.ai-flood-result { display: grid; gap: .25rem; padding: .55rem .65rem; border-left: 3px solid #2563eb; background: #eef3ff; font-size: .76rem; }
+.ai-flood-result small { color: var(--muted); line-height: 1.35; }
 .parcel-legend { top: .75rem; right: .75rem; bottom: auto; display: block; min-width: 8rem; }
 .parcel-legend summary { color: var(--ink); font-size: .76rem; font-weight: 700; cursor: pointer; }
 .parcel-legend-items { display: grid; gap: .5rem; margin-top: .6rem; }

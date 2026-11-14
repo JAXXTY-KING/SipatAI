@@ -65,20 +65,13 @@ export async function fetchWindForecast() {
   return response.json()
 }
 
-export async function fetchHimawariFrames(band) {
-  const parameters = new URLSearchParams({ band })
-  const response = await request(`/api/v1/weather/himawari/frames?${parameters}`)
+export async function fetchHimawariTileFrames() {
+  const response = await request('/api/v1/weather/himawari/tile-frames')
   return response.json()
 }
 
-export async function fetchHimawariImage(band, timeCode) {
-  const parameters = new URLSearchParams({ band, time_code: timeCode })
-  const response = await request(`/api/v1/weather/himawari/latest.jpg?${parameters}`)
-  return {
-    image: await response.blob(),
-    observedAt: response.headers.get('X-Himawari-Observation-Time'),
-    band: response.headers.get('X-Himawari-Band'),
-  }
+export function himawariTileTemplate(timeCode) {
+  return `${apiBaseUrl}/api/v1/weather/himawari/tiles/${timeCode}/{z}/{x}/{y}.png`
 }
 
 export async function fetchCurrentWeather(coordinates) {
@@ -96,6 +89,20 @@ export async function fetchCurrentWeather(coordinates) {
 export async function searchWeatherLocations(query) {
   const parameters = new URLSearchParams({ q: query })
   const response = await request(`/api/v1/weather/locations?${parameters}`)
+  return response.json()
+}
+
+export async function fetchFloodModelStatus() {
+  const response = await request('/api/v1/model/status')
+  return response.json()
+}
+
+export async function analyzeFloodArea({ latitude, longitude, date }) {
+  const response = await request('/api/v1/model/analyze', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ latitude, longitude, date: date || null }),
+  })
   return response.json()
 }
 

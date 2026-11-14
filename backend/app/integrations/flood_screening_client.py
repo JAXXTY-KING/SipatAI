@@ -1,18 +1,26 @@
 import asyncio
 import json
+import logging
 import math
+import random
 import time
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 import httpx
 from shapely.geometry import Point, shape
 from shapely.ops import unary_union
 
+logger = logging.getLogger(__name__)
+
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
-CACHE_TTL_SECONDS = 900
+# Open-Meteo refreshes its models about hourly and rate-limits free usage per location.
+CACHE_TTL_SECONDS = 3600
+FETCH_CONCURRENCY = 2
+FETCH_ATTEMPTS = 4
+RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 GRID_STEP_DEGREES = 0.5
 GRID_WEST = 116.0
 GRID_EAST = 127.0
@@ -26,10 +34,28 @@ WIND_GRID_NORTH = 25.5
 LOW_ELEVATION_METERS = 30
 _SCREENING_CACHE: tuple[float, dict[str, Any]] | None = None
 _WIND_CACHE: tuple[float, dict[str, Any]] | None = None
+_IN_FLIGHT: dict[str, asyncio.Task] = {}
 
 
 class FloodScreeningError(RuntimeError):
     """Raised when forecast or Philippine land-boundary data are unavailable."""
+
+
+async def _share_in_flight(key: str, start: Callable[[], Awaitable[dict[str, Any]]]) -> dict[str, Any]:
+    """Let simultaneous requests share one provider fetch instead of each calling it."""
+    task = _IN_FLIGHT.get(key)
+    if task is None or task.done():
+        task = asyncio.ensure_future(start())
+        _IN_FLIGHT[key] = task
+
+        def _finished(finished: asyncio.Task) -> None:
+            if _IN_FLIGHT.get(key) is finished:
+                del _IN_FLIGHT[key]
+            if not finished.cancelled():
+                finished.exception()
+
+        task.add_done_callback(_finished)
+    return await asyncio.shield(task)
 
 
 @lru_cache(maxsize=1)
@@ -159,30 +185,37 @@ async def _fetch_forecast_batch(
     client: httpx.AsyncClient,
     locations: tuple[tuple[float, float], ...],
 ) -> list[dict[str, Any]]:
-    try:
-        response = await client.get(
-            FORECAST_URL,
-            params={
-                "latitude": ",".join(str(latitude) for latitude, _ in locations),
-                "longitude": ",".join(str(longitude) for _, longitude in locations),
-                "hourly": (
-                    "precipitation,temperature_2m,pressure_msl,"
-                    "wind_speed_10m,wind_direction_10m"
-                ),
-                "forecast_hours": 72,
-                "timezone": "UTC",
-            },
-        )
-        response.raise_for_status()
-        payload = response.json()
-    except httpx.HTTPStatusError as error:
-        raise FloodScreeningError(
-            f"Forecast provider returned HTTP {error.response.status_code}."
-        ) from error
-    except httpx.HTTPError as error:
-        raise FloodScreeningError("Could not retrieve rainfall forecasts.") from error
-    except ValueError as error:
-        raise FloodScreeningError("Forecast provider returned invalid JSON.") from error
+    request_params = {
+        "latitude": ",".join(str(latitude) for latitude, _ in locations),
+        "longitude": ",".join(str(longitude) for _, longitude in locations),
+        "hourly": (
+            "precipitation,temperature_2m,pressure_msl,"
+            "wind_speed_10m,wind_direction_10m"
+        ),
+        "forecast_hours": 72,
+        "timezone": "UTC",
+    }
+    payload = None
+    for attempt in range(1, FETCH_ATTEMPTS + 1):
+        try:
+            response = await client.get(FORECAST_URL, params=request_params)
+            response.raise_for_status()
+            payload = response.json()
+            break
+        except httpx.HTTPStatusError as error:
+            status = error.response.status_code
+            if status not in RETRYABLE_STATUS_CODES or attempt == FETCH_ATTEMPTS:
+                raise FloodScreeningError(f"Forecast provider returned HTTP {status}.") from error
+            retry_after = error.response.headers.get("Retry-After", "")
+            delay = min(10.0, float(retry_after)) if retry_after.isdigit() else 2.0 * attempt
+        except httpx.HTTPError as error:
+            if attempt == FETCH_ATTEMPTS:
+                logger.warning("Forecast request failed: %r", error)
+                raise FloodScreeningError("Could not retrieve rainfall forecasts.") from error
+            delay = 1.5 * attempt
+        except ValueError as error:
+            raise FloodScreeningError("Forecast provider returned invalid JSON.") from error
+        await asyncio.sleep(delay + random.uniform(0, 0.5))
 
     if isinstance(payload, dict):
         payloads = [payload]
@@ -205,18 +238,38 @@ async def get_nationwide_flood_screening() -> dict[str, Any]:
     now = time.monotonic()
     if _SCREENING_CACHE and now - _SCREENING_CACHE[0] < CACHE_TTL_SECONDS:
         return _SCREENING_CACHE[1]
-
-    locations = _forecast_grid()
-    batches = [locations[index:index + 50] for index in range(0, len(locations), 50)]
     try:
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
-            forecasts = await asyncio.gather(
-                *(_fetch_forecast_batch(client, batch) for batch in batches)
-            )
+        return await _share_in_flight("screening", _build_flood_screening)
+    except FloodScreeningError:
+        if _SCREENING_CACHE:
+            logger.warning("Serving the last rainfall forecast because the provider is unavailable.")
+            return _SCREENING_CACHE[1]
+        raise
+
+
+async def _fetch_grid(locations: tuple[tuple[float, float], ...]) -> list[list[dict[str, Any]]]:
+    batches = [locations[index:index + 50] for index in range(0, len(locations), 50)]
+    slots = asyncio.Semaphore(FETCH_CONCURRENCY)
+
+    async def fetch_limited(client: httpx.AsyncClient, batch: tuple[tuple[float, float], ...]):
+        async with slots:
+            return await _fetch_forecast_batch(client, batch)
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(60.0, connect=15.0),
+            follow_redirects=False,
+        ) as client:
+            return await asyncio.gather(*(fetch_limited(client, batch) for batch in batches))
     except FloodScreeningError:
         raise
     except httpx.HTTPError as error:
-        raise FloodScreeningError("Could not retrieve the nationwide rainfall forecast.") from error
+        raise FloodScreeningError("Could not retrieve the nationwide forecast.") from error
+
+
+async def _build_flood_screening() -> dict[str, Any]:
+    global _SCREENING_CACHE
+    forecasts = await _fetch_grid(_forecast_grid())
 
     features = []
     half_step = GRID_STEP_DEGREES / 2
@@ -272,18 +325,18 @@ async def get_nationwide_wind_forecast() -> dict[str, Any]:
     now = time.monotonic()
     if _WIND_CACHE and now - _WIND_CACHE[0] < CACHE_TTL_SECONDS:
         return _WIND_CACHE[1]
-
-    locations = _wind_forecast_grid()
-    batches = [locations[index:index + 50] for index in range(0, len(locations), 50)]
     try:
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
-            forecasts = await asyncio.gather(
-                *(_fetch_forecast_batch(client, batch) for batch in batches)
-            )
+        return await _share_in_flight("wind", _build_wind_forecast)
     except FloodScreeningError:
+        if _WIND_CACHE:
+            logger.warning("Serving the last wind forecast because the provider is unavailable.")
+            return _WIND_CACHE[1]
         raise
-    except httpx.HTTPError as error:
-        raise FloodScreeningError("Could not retrieve the nationwide wind forecast.") from error
+
+
+async def _build_wind_forecast() -> dict[str, Any]:
+    global _WIND_CACHE
+    forecasts = await _fetch_grid(_wind_forecast_grid())
 
     points = [item for batch in forecasts for item in batch]
     forecast_times = points[0]["forecast_times"]

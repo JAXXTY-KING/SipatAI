@@ -19,7 +19,7 @@ The map explorer is the landing page. Search for a Philippine place to center th
 
 ## Prerequisites
 
-Install Node.js 22 LTS and Python 3.12 from the official links in `docs/setup_windows.md`. MindSpore 2.10.0 and NumPy 1.26.4 are listed separately for the ML environment in `ml/requirements.txt`.
+Install Node.js 22 LTS and Python 3.12 from the official links in `docs/setup_windows.md`. MindSpore 2.10.0 and NumPy 1.26.4 are listed separately for the ML environment in `ml/requirements.txt`. To run the MindSpore model inside the backend, install `backend/requirements-ml.txt` into the backend environment and see [ml/README.md](ml/README.md) for the training pipeline.
 
 ## Run locally
 
@@ -32,14 +32,18 @@ Follow the exact Windows steps in `docs/setup_windows.md`. The frontend runs sep
 - `GET /api/v1/damage-map`
 - `GET /api/v1/parcels/map?west=<longitude>&south=<latitude>&east=<longitude>&north=<latitude>` (imported parcels within the current map viewport)
 - `POST /api/v1/analyze` (requires a configured ModelArts endpoint)
+- `GET /api/v1/model/status` (local MindSpore model readiness, provenance and held-out validation metrics)
+- `POST /api/v1/model/analyze` (runs the local MindSpore ResNet-50 U-Net on real Sentinel-1/2 data for a 5 km tile around `latitude`/`longitude`, optional `date`; returns a map overlay and flooded area; requires `backend/requirements-ml.txt` and a trained checkpoint)
 - `POST /api/v1/scenes/search` (Copernicus Data Space Sentinel catalogue)
 - `POST /api/v1/scenes/download` (copies a Sentinel product to OBS; requires Copernicus and OBS credentials)
 - `GET /api/v1/weather/locations?q=<Philippine place name>` (Open-Meteo geocoding; no provider key required)
 - `GET /api/v1/weather/overview` (live observations at reference Philippine cities, cached 10 minutes; API context, not displayed as duplicate map markers)
-- `GET /api/v1/weather/flood-screening` (coarse nationwide 72-hour rainfall and low-elevation screening, cached 15 minutes; not a typhoon track or verified flood forecast)
-- `GET /api/v1/weather/wind-forecast` (coarse regional hourly 10 m wind speed/direction for 72 hours, cached 15 minutes; Open-Meteo model output, not a PAGASA live feed)
-- `GET /api/v1/weather/himawari/frames?band=<b03|b13|cve|ngt|dms|arm>` (latest 12 JMA frame timestamps for animation)
-- `GET /api/v1/weather/himawari/latest.jpg?band=<b03|b13|cve|ngt|dms|arm>&time_code=<JMA frame>` (selected JMA Himawari-9 Southeast Asia image; cached 5 minutes)
+- `GET /api/v1/weather/flood-screening` (coarse nationwide 72-hour rainfall and low-elevation screening; cached 1 hour, retried on provider throttling, and the last good forecast is served if the provider is briefly unavailable; not a typhoon track or verified flood forecast)
+- `GET /api/v1/weather/wind-forecast` (coarse regional hourly 10 m wind speed/direction for 72 hours, same caching as above; Open-Meteo model output, not a PAGASA live feed)
+- `GET /api/v1/weather/himawari/tile-frames` (latest 12 JMA full-disk observation times, oldest first, for cloud playback)
+- `GET /api/v1/weather/himawari/tiles/{time_code}/{z}/{x}/{y}.png` (transparent cloud-only tiles derived from JMA Himawari-9 infrared imagery, zoom 3-5; cached 30 minutes)
+- `GET /api/v1/weather/himawari/frames?band=<b03|b13|cve|ngt|dms|arm>` (older single-image endpoint: latest 12 JMA frame timestamps)
+- `GET /api/v1/weather/himawari/latest.jpg?band=<b03|b13|cve|ngt|dms|arm>&time_code=<JMA frame>` (older single-image endpoint: JMA Himawari-9 Southeast Asia image; cached 5 minutes)
 - `POST /api/v1/reports/flood-screening` (PDF brief of the screening data; explicitly not a farm-damage report and does not require the assessment database)
 - `POST /api/v1/reports` (PDF of the latest completed database assessment; requires configured GaussDB/PostGIS)
 - `POST /api/v1/weather/current` (current Open-Meteo model conditions for selected coordinates; no provider key required)

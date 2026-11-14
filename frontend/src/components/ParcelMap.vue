@@ -30,6 +30,45 @@
           {{ isLoadingFloodScreening ? 'Refreshing forecast…' : isRainfallScreeningActive ? 'Refresh rainfall screening' : 'Refresh weather forecast' }}
         </button>
 
+        <details class="map-tools-group ai-flood-group" open>
+          <summary>
+            MindSpore flood AI
+            <span class="ai-flood-badge" :class="aiModelStatus?.ready ? 'ai-flood-badge-ready' : 'ai-flood-badge-off'">
+              {{ aiModelStatus?.ready ? 'Model ready' : 'Not ready' }}
+            </span>
+          </summary>
+          <div class="map-tools-group-content">
+            <p class="parcel-map-attribution">
+              Runs a MindSpore ResNet-50 U-Net on real Sentinel-1 radar and Sentinel-2 optical imagery for a 5 km tile at the selected point
+              (or the map centre). Experimental: trained on weak labels, not an official flood boundary.
+            </p>
+            <p v-if="aiModelStatus && !aiModelStatus.ready" class="parcel-map-status" role="status">{{ aiModelStatus.reason }}</p>
+            <p v-else-if="aiModelStatus?.validation" class="parcel-map-status">
+              Held-out validation: IoU {{ aiModelStatus.validation.iou.toFixed(2) }} · F1 {{ aiModelStatus.validation.f1.toFixed(2) }}
+            </p>
+            <label class="weather-layer-select">
+              Event date (optional, for past floods)
+              <input v-model="aiEventDate" type="date" :max="todayIso" aria-label="Flood event date">
+            </label>
+            <button
+              class="parcel-refresh-button"
+              type="button"
+              :disabled="isAnalyzingFlood || !aiModelStatus?.ready"
+              @click="runFloodAnalysis"
+            >
+              {{ isAnalyzingFlood ? 'Reading Sentinel data & running MindSpore…' : 'Analyse flood extent here' }}
+            </button>
+            <p v-if="aiAnalysisError" class="parcel-map-status ai-flood-error" role="alert">{{ aiAnalysisError }}</p>
+            <div v-if="aiResult" class="ai-flood-result" role="status">
+              <strong>{{ aiResult.statistics.flooded_area_km2 }} km² flooded</strong>
+              <span>{{ (aiResult.statistics.flooded_fraction * 100).toFixed(1) }}% of the {{ aiResult.statistics.tile_area_km2 }} km² tile</span>
+              <small>Radar {{ aiResult.observations.sentinel_1.datetime.slice(0, 10) }} · Optical {{ aiResult.observations.sentinel_2.datetime.slice(0, 10) }} ({{ aiResult.observations.sentinel_2.cloud_cover_percent }}% cloud)</small>
+              <small v-for="warning in aiResult.warnings" :key="warning">⚠ {{ warning }}</small>
+              <button class="parcel-refresh-button" type="button" @click="clearFloodOverlay">Clear overlay</button>
+            </div>
+          </div>
+        </details>
+
         <details class="map-tools-group">
           <summary>Farm data &amp; reference</summary>
           <div class="map-tools-group-content">
@@ -70,7 +109,7 @@
               Consult <a href="https://www.pagasa.dost.gov.ph/" target="_blank" rel="noreferrer">PAGASA</a> for official advisories.
             </p>
             <p class="parcel-map-attribution">
-              Satellite clouds: <a href="https://www.data.jma.go.jp/mscweb/data/himawari/sat_img.php?area=se1" target="_blank" rel="noreferrer">JMA Himawari-9</a>, Southeast Asia sector; recent timestamped frames refresh every 10 minutes.
+              Satellite clouds: <a href="https://www.jma.go.jp/bosai/himawari/" target="_blank" rel="noreferrer">JMA Himawari-9</a> infrared tiles (Japan Meteorological Agency), shown as cloud-only imagery; the latest two hours of 10-minute frames play back and refresh every 10 minutes.
             </p>
             <p class="parcel-map-attribution">
               Wind: <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo</a> model forecast, not an official PAGASA feed.
@@ -133,7 +172,7 @@
         <span v-if="showRegions"><i class="region-legend-mark"></i> Administrative region · reference only</span>
         <span v-if="showParcels"><i class="parcel-legend-mark"></i> Imported farm parcel</span>
         <span v-if="showDamage && hasDamageFeatures"><i class="damage-legend-mark"></i> Completed flood assessment</span>
-        <span v-if="isRainfallScreeningActive"><i class="flood-screening-legend-mark"></i> Watch / elevated rainfall screening · prototype</span>
+        <span v-if="isRainfallScreeningActive"><i class="flood-screening-legend-mark"></i> Rainfall screening: lower (green) · watch (amber) · elevated (red) · prototype</span>
         <span v-if="isSatelliteImageActive"><i class="satellite-image-legend-mark"></i> Live cloud-only Himawari-9 imagery</span>
         <span v-if="isWindForecastActive"><i class="wind-forecast-legend-mark"></i> Forecast wind direction and speed · Open-Meteo</span>
         <span v-if="isWeatherGridActive"><i class="weather-legend-mark"></i> {{ selectedWeatherLayerLabel }} · Open-Meteo forecast grid</span>
@@ -153,7 +192,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import mapboxgl from 'mapbox-gl'
-import { fetchDamageMap, fetchFloodScreening, fetchHimawariFrames, fetchHimawariImage, fetchParcelMap, fetchWindForecast } from '../api/client'
+import { analyzeFloodArea, fetchDamageMap, fetchFloodModelStatus, fetchFloodScreening, fetchHimawariTileFrames, fetchParcelMap, fetchWindForecast, himawariTileTemplate } from '../api/client'
 import { severityColors } from '../map/severity'
 
 const props = defineProps({
@@ -178,7 +217,6 @@ const showRegions = ref(false)
 const showParcels = ref(true)
 const showDamage = ref(true)
 const satelliteObservedAt = ref('')
-const satelliteImageBandLabel = ref('')
 const satelliteImageStatus = ref('Connecting to JMA…')
 const isLoadingSatelliteImage = ref(false)
 const satelliteFrames = ref([])
@@ -222,7 +260,7 @@ const floodScreeningStatus = computed(() => {
     const screeningCells = collection.features.filter((feature) => (
       ['watch', 'elevated'].includes(feature.properties?.screening_level)
     )).length
-    return `${screeningCells} watch/elevated cells shown · updated ${updatedAt} · refreshes every 15 min`
+    return `${screeningCells} watch/elevated cells · updated ${updatedAt} · forecast refreshes hourly`
   }
   const gridCells = collection.features.length
   const resolution = collection.grid_resolution_degrees
@@ -252,6 +290,56 @@ const weatherScaleMaximum = computed(() => ({
 }[selectedWeatherLayer.value] ?? ''))
 const isLoadingParcels = ref(false)
 const hasDamageFeatures = ref(false)
+const aiModelStatus = ref(null)
+const aiEventDate = ref('')
+const aiResult = ref(null)
+const aiAnalysisError = ref('')
+const isAnalyzingFlood = ref(false)
+const todayIso = new Date().toISOString().slice(0, 10)
+const AI_OVERLAY_ID = 'ai-flood-overlay'
+
+function clearFloodOverlay() {
+  if (map?.getLayer(AI_OVERLAY_ID)) map.removeLayer(AI_OVERLAY_ID)
+  if (map?.getSource(AI_OVERLAY_ID)) map.removeSource(AI_OVERLAY_ID)
+  aiResult.value = null
+}
+
+async function loadFloodModelStatus() {
+  try {
+    aiModelStatus.value = await fetchFloodModelStatus()
+  } catch (error) {
+    aiModelStatus.value = { ready: false, reason: error instanceof Error ? error.message : 'Model status unavailable.' }
+  }
+}
+
+async function runFloodAnalysis() {
+  if (!map || isAnalyzingFlood.value) return
+  const target = selectionMarker?.getLngLat() ?? map.getCenter()
+  isAnalyzingFlood.value = true
+  aiAnalysisError.value = ''
+  try {
+    const result = await analyzeFloodArea({
+      latitude: Number(target.lat.toFixed(6)),
+      longitude: Number(target.lng.toFixed(6)),
+      date: aiEventDate.value,
+    })
+    if (!map) return
+    clearFloodOverlay()
+    map.addSource(AI_OVERLAY_ID, { type: 'image', url: result.overlay.image, coordinates: result.overlay.coordinates })
+    map.addLayer({ id: AI_OVERLAY_ID, type: 'raster', source: AI_OVERLAY_ID, paint: { 'raster-opacity': 0.9, 'raster-fade-duration': 0 } })
+    const longitudes = result.overlay.coordinates.map((corner) => corner[0])
+    const latitudes = result.overlay.coordinates.map((corner) => corner[1])
+    map.fitBounds(
+      [[Math.min(...longitudes), Math.min(...latitudes)], [Math.max(...longitudes), Math.max(...latitudes)]],
+      { padding: 60, duration: 1200 },
+    )
+    aiResult.value = result
+  } catch (error) {
+    aiAnalysisError.value = error instanceof Error ? error.message : 'Flood analysis failed.'
+  } finally {
+    isAnalyzingFlood.value = false
+  }
+}
 let map
 let selectionMarker
 let resizeObserver
@@ -263,7 +351,6 @@ let satelliteRequestSequence = 0
 let windForecastRequestSequence = 0
 let satelliteRefreshTimer
 let satelliteAnimationTimer
-let satelliteImageUrls = []
 let mapLayersInitialized = false
 let windForecast
 let windParticles = []
@@ -271,157 +358,76 @@ let windAnimationFrame
 let windForecastTimer
 let windPlaybackTimer
 
-const HIMAWARI_SECTOR_COORDINATES = [
-  [80, 60],
-  [150, 60],
-  [150, -10],
-  [80, -10],
-]
+const HIMAWARI_TILE_MIN_ZOOM = 3
+const HIMAWARI_TILE_MAX_ZOOM = 5
+const SATELLITE_CLOUD_OPACITY = 0.9
+const satelliteLayerIds = []
+const satelliteSourceIds = []
+const satelliteFrameIndex = ref(0)
 
-function currentSatelliteBand() {
-  const philippineHour = (new Date().getUTCHours() + 8) % 24
-  return philippineHour >= 6 && philippineHour < 18 ? 'b03' : 'b13'
+function removeSatelliteLayers() {
+  for (const layerId of satelliteLayerIds.splice(0)) {
+    if (map?.getLayer(layerId)) map.removeLayer(layerId)
+  }
+  for (const sourceId of satelliteSourceIds.splice(0)) {
+    if (map?.getSource(sourceId)) map.removeSource(sourceId)
+  }
 }
 
-async function makeCloudOnlyImage(imageBlob) {
-  const imageBitmap = await createImageBitmap(imageBlob)
-  try {
-    const canvas = document.createElement('canvas')
-    canvas.width = imageBitmap.width
-    canvas.height = imageBitmap.height
-    const context = canvas.getContext('2d', { willReadFrequently: true })
-    if (!context) throw new Error('Cloud transparency could not be prepared.')
-    context.drawImage(imageBitmap, 0, 0)
-    const imageData = context.getImageData(0, 0, canvas.width, canvas.height)
-    const pixels = imageData.data
-    const luminanceMap = new Float32Array(canvas.width * canvas.height)
-    const cloudMask = new Uint8Array(canvas.width * canvas.height)
-    for (let y = 0; y < canvas.height; y += 1) {
-      for (let x = 0; x < canvas.width; x += 1) {
-        const index = (y * canvas.width + x) * 4
-        const red = pixels[index]
-        const green = pixels[index + 1]
-        const blue = pixels[index + 2]
-        const pixelIndex = y * canvas.width + x
-        const luminance = (red * 0.299) + (green * 0.587) + (blue * 0.114)
-        luminanceMap[pixelIndex] = luminance
-        cloudMask[pixelIndex] = green > red * 1.15 && green > blue * 1.12 && green - red > 14 ? 1 : 0
-        if (x < 10 || y < 10 || x >= canvas.width - 10 || y >= canvas.height - 18) {
-          pixels[index + 3] = 0
-        }
-      }
+function showSatelliteFrame(index) {
+  satelliteLayerIds.forEach((layerId, layerIndex) => {
+    if (map?.getLayer(layerId)) {
+      map.setPaintProperty(layerId, 'raster-opacity', layerIndex === index ? SATELLITE_CLOUD_OPACITY : 0)
     }
-    const gridRows = new Uint8Array(canvas.height)
-    const gridColumns = new Uint8Array(canvas.width)
-    for (let y = 2; y < canvas.height - 2; y += 1) {
-      let edgeStrength = 0
-      for (let x = 4; x < canvas.width - 4; x += 1) {
-        edgeStrength += Math.abs(luminanceMap[y * canvas.width + x] - luminanceMap[(y - 1) * canvas.width + x])
-      }
-      gridRows[y] = edgeStrength / (canvas.width - 8) > 60 ? 1 : 0
-    }
-    for (let x = 2; x < canvas.width - 2; x += 1) {
-      let edgeStrength = 0
-      for (let y = 4; y < canvas.height - 4; y += 1) {
-        edgeStrength += Math.abs(luminanceMap[y * canvas.width + x] - luminanceMap[y * canvas.width + x - 1])
-      }
-      gridColumns[x] = edgeStrength / (canvas.height - 8) > 60 ? 1 : 0
-    }
-    for (let y = 1; y < canvas.height - 1; y += 1) {
-      for (let x = 1; x < canvas.width - 1; x += 1) {
-        const pixelIndex = y * canvas.width + x
-        const index = pixelIndex * 4
-        let neighborhood = 0
-        for (let offsetY = -1; offsetY <= 1; offsetY += 1) {
-          for (let offsetX = -1; offsetX <= 1; offsetX += 1) {
-            neighborhood += luminanceMap[(y + offsetY) * canvas.width + x + offsetX]
-          }
-        }
-        const average = neighborhood / 9
-        const sharpened = Math.max(0, Math.min(255, luminanceMap[pixelIndex] + ((luminanceMap[pixelIndex] - average) * 1.8)))
-        const cloudContrast = Math.max(0, Math.min(255, (sharpened - 38) * 1.8))
-        const cloudStrength = Math.max(0, Math.min(1, (cloudContrast - 24) / 130))
-        const cloudOpacity = Math.min(0.97, Math.pow(cloudStrength, 0.52))
-        const isImageEdge = x < 10 || y < 10 || x >= canvas.width - 10 || y >= canvas.height - 18
-        const isGridLine = gridRows[y - 1] || gridRows[y] || gridRows[y + 1]
-          || gridColumns[x - 1] || gridColumns[x] || gridColumns[x + 1]
-        if (cloudMask[pixelIndex] || isImageEdge || isGridLine) {
-          pixels[index + 3] = 0
-          continue
-        }
-        const cloudTone = Math.min(255, 52 + cloudContrast * 0.78)
-        pixels[index] = cloudTone
-        pixels[index + 1] = cloudTone
-        pixels[index + 2] = cloudTone
-        pixels[index + 3] = Math.round(cloudOpacity * 255)
-      }
-    }
-    context.putImageData(imageData, 0, 0)
-    const transparentBlob = await new Promise((resolve, reject) => {
-      canvas.toBlob((blob) => {
-        if (blob) resolve(blob)
-        else reject(new Error('Cloud transparency could not be encoded.'))
-      }, 'image/png')
-    })
-    return transparentBlob
-  } finally {
-    imageBitmap.close()
-  }
+  })
+  satelliteFrameIndex.value = index
+  satelliteObservedAt.value = satelliteFrames.value[index].observed_at
+  satelliteImageStatus.value = `Infrared clouds · ${satelliteObservedAt.value}`
 }
 
 async function loadSatelliteImage() {
   const currentRequest = ++satelliteRequestSequence
-  const requestedBand = currentSatelliteBand()
   isLoadingSatelliteImage.value = true
-  satelliteImageStatus.value = 'Loading recent JMA satellite frames…'
+  if (!satelliteFrames.value.length) satelliteImageStatus.value = 'Loading recent JMA satellite frames…'
   try {
-    stopSatellitePlayback()
-    const response = await fetchHimawariFrames(requestedBand)
+    const response = await fetchHimawariTileFrames()
     const frames = Array.isArray(response.frames) ? response.frames : []
-    if (frames.length < 2) throw new Error('JMA has not provided enough recent frames for animation.')
-    const loadedFrames = await Promise.all(frames.map(async (frame) => ({
-      ...frame,
-      image: await makeCloudOnlyImage((await fetchHimawariImage(requestedBand, frame.time_code)).image),
-    })))
-    if (currentRequest !== satelliteRequestSequence) return
+    if (!frames.length) throw new Error('JMA has not provided recent satellite frames.')
+    if (currentRequest !== satelliteRequestSequence || !map) return
+    if (!map.getLayer('admin-region-fill')) throw new Error('The map is not ready to display satellite imagery.')
 
-    const nextUrls = loadedFrames.map((frame) => URL.createObjectURL(frame.image))
-    const chronologicalFrames = loadedFrames.reverse()
-    const chronologicalUrls = nextUrls.reverse()
-    if (!map?.getSource('himawari-live')) {
-      if (!map?.getLayer('admin-region-fill')) {
-        chronologicalUrls.forEach((url) => URL.revokeObjectURL(url))
-        throw new Error('The map is not ready to display satellite imagery.')
-      }
-      map.addSource('himawari-live', {
-        type: 'image',
-        url: chronologicalUrls[0],
-        coordinates: HIMAWARI_SECTOR_COORDINATES,
+    const currentNewest = satelliteFrames.value.at(-1)?.time_code
+    if (currentNewest === frames.at(-1).time_code && satelliteLayerIds.length === frames.length) return
+
+    stopSatellitePlayback()
+    removeSatelliteLayers()
+    // Insert below map labels so place names and roads stay readable above the clouds.
+    const beforeLayerId = map.getStyle()?.layers?.find((layer) => layer.type === 'symbol')?.id
+    for (const frame of frames) {
+      const id = `himawari-${frame.time_code}`
+      map.addSource(id, {
+        type: 'raster',
+        tiles: [himawariTileTemplate(frame.time_code)],
+        tileSize: 256,
+        minzoom: HIMAWARI_TILE_MIN_ZOOM,
+        maxzoom: HIMAWARI_TILE_MAX_ZOOM,
       })
       map.addLayer({
-        id: 'himawari-live-image',
+        id,
         type: 'raster',
-        source: 'himawari-live',
+        source: id,
         layout: { visibility: isSatelliteImageActive.value ? 'visible' : 'none' },
         paint: {
-          'raster-opacity': 0.88,
+          'raster-opacity': 0,
+          'raster-opacity-transition': { duration: 0 },
           'raster-fade-duration': 0,
         },
-      })
-    } else {
-      const oldImageUrls = satelliteImageUrls
-      map.getSource('himawari-live').updateImage({
-        url: chronologicalUrls[0],
-        coordinates: HIMAWARI_SECTOR_COORDINATES,
-      })
-      if (oldImageUrls.length) map.once('idle', () => oldImageUrls.forEach((url) => URL.revokeObjectURL(url)))
+      }, beforeLayerId)
+      satelliteSourceIds.push(id)
+      satelliteLayerIds.push(id)
     }
-    satelliteFrames.value = chronologicalFrames
-    satelliteImageUrls = chronologicalUrls
-    satelliteFrameIndex.value = 0
-    satelliteObservedAt.value = chronologicalFrames[0].observed_at || 'Timestamp unavailable'
-    satelliteImageBandLabel.value = requestedBand === 'b03' ? 'Visible cloud detail' : 'Infrared cloud detail'
-    satelliteImageStatus.value = `${satelliteImageBandLabel.value} · ${chronologicalFrames[0].observed_at} · ready to play`
+    satelliteFrames.value = frames
+    showSatelliteFrame(frames.length - 1)
     if (isSatelliteImageActive.value && satellitePlaybackEnabled.value) startSatellitePlayback()
   } catch (error) {
     if (currentRequest !== satelliteRequestSequence) return
@@ -437,7 +443,7 @@ function stopSatellitePlayback() {
 }
 
 function startSatellitePlayback() {
-  if (!map || satelliteFrames.value.length < 2 || !satelliteImageUrls.length) return
+  if (!map || satelliteFrames.value.length < 2 || !satelliteLayerIds.length) return
   stopSatellitePlayback()
   isSatellitePlaying.value = true
   satelliteAnimationTimer = window.setInterval(() => {
@@ -445,15 +451,8 @@ function startSatellitePlayback() {
       stopSatellitePlayback()
       return
     }
-    const nextIndex = (satelliteFrameIndex.value + 1) % satelliteFrames.value.length
-    satelliteFrameIndex.value = nextIndex
-    map.getSource('himawari-live')?.updateImage({
-      url: satelliteImageUrls[nextIndex],
-      coordinates: HIMAWARI_SECTOR_COORDINATES,
-    })
-    satelliteObservedAt.value = satelliteFrames.value[nextIndex].observed_at
-    satelliteImageStatus.value = `${satelliteImageBandLabel.value} · ${satelliteObservedAt.value}`
-  }, 800)
+    showSatelliteFrame((satelliteFrameIndex.value + 1) % satelliteFrames.value.length)
+  }, 700)
 }
 
 function toggleSatellitePlayback() {
@@ -464,18 +463,16 @@ function toggleSatellitePlayback() {
 
 function setSatelliteImageVisibility() {
   window.clearInterval(satelliteRefreshTimer)
-  if (!isSatelliteImageActive.value) {
+  const visible = isSatelliteImageActive.value
+  satelliteLayerIds.forEach((layerId) => setLayerVisibility(layerId, visible))
+  if (!visible) {
     stopSatellitePlayback()
-    setLayerVisibility('himawari-live-image', false)
     return
   }
-  setLayerVisibility('himawari-live-image', true)
-  if (satelliteFrames.value.length && satellitePlaybackEnabled.value) startSatellitePlayback()
-  else if (!satelliteFrames.value.length) void loadSatelliteImage()
+  if (!satelliteFrames.value.length) void loadSatelliteImage()
+  else if (satellitePlaybackEnabled.value) startSatellitePlayback()
   satelliteRefreshTimer = window.setInterval(() => void loadSatelliteImage(), 10 * 60 * 1000)
 }
-
-const satelliteFrameIndex = ref(0)
 
 function setLayerVisibility(layerId, visible) {
   if (map?.getLayer(layerId)) {
@@ -622,17 +619,27 @@ function setFloodScreeningDisplay() {
   if (!map?.getLayer(fillLayer)) return
 
   if (isRainfallScreeningActive.value) {
-    const screeningFilter = ['in', ['get', 'screening_level'], ['literal', ['watch', 'elevated']]]
-    map.setFilter(fillLayer, screeningFilter)
-    map.setFilter(outlineLayer, screeningFilter)
+    // Show every cell so the layer is visibly active; only watch/elevated cells are emphasized.
+    map.setFilter(fillLayer, null)
+    map.setFilter(outlineLayer, null)
     map.setPaintProperty(fillLayer, 'fill-color', [
       'match', ['get', 'screening_level'],
       'elevated', '#c83e3e',
       'watch', '#f0b52c',
-      '#719b86',
+      '#5fa98a',
     ])
-    map.setPaintProperty(fillLayer, 'fill-opacity', 0.5)
-    map.setPaintProperty(outlineLayer, 'line-opacity', 0.55)
+    map.setPaintProperty(fillLayer, 'fill-opacity', [
+      'match', ['get', 'screening_level'],
+      'elevated', 0.6,
+      'watch', 0.55,
+      0.22,
+    ])
+    map.setPaintProperty(outlineLayer, 'line-opacity', [
+      'match', ['get', 'screening_level'],
+      'elevated', 0.7,
+      'watch', 0.65,
+      0.3,
+    ])
     return
   }
 
@@ -683,7 +690,6 @@ function addFloodScreeningLayer(collection) {
       ],
       'fill-opacity': 0.5,
     },
-    filter: ['in', ['get', 'screening_level'], ['literal', ['watch', 'elevated']]],
   }, 'admin-region-outline')
   map.addLayer({
     id: 'flood-screening-outline',
@@ -695,7 +701,6 @@ function addFloodScreeningLayer(collection) {
       'line-width': 0.35,
       'line-opacity': 0.55,
     },
-    filter: ['in', ['get', 'screening_level'], ['literal', ['watch', 'elevated']]],
   }, 'admin-region-outline')
   map.on('click', 'flood-screening-fill', (event) => {
     const feature = event.features?.[0]
@@ -835,6 +840,13 @@ function windParticleColor(speed) {
   return '#5bd4dd'
 }
 
+const WIND_PARTICLE_MAX_AGE = 120
+let windViewKey = ''
+
+function respawnWindParticle(bounds) {
+  return { ...createWindParticle(bounds), age: 0 }
+}
+
 function drawWindForecastFrame(timestamp, deltaMilliseconds = 16) {
   const canvas = windCanvas.value
   const context = canvas?.getContext('2d')
@@ -842,21 +854,34 @@ function drawWindForecastFrame(timestamp, deltaMilliseconds = 16) {
   const bounds = map.getBounds()
   const width = canvas.clientWidth
   const height = canvas.clientHeight
-  context.clearRect(0, 0, width, height)
+  const center = map.getCenter()
+  const viewKey = `${center.lng.toFixed(4)}|${center.lat.toFixed(4)}|${map.getZoom().toFixed(3)}`
+  if (viewKey !== windViewKey) {
+    // Trails drawn for a previous view would smear across a moved map.
+    context.clearRect(0, 0, width, height)
+    windViewKey = viewKey
+  }
   if (!windParticles.length) {
-    const particleCount = Math.min(420, Math.max(220, Math.round((width * height) / 1900)))
-    windParticles = Array.from({ length: particleCount }, () => createWindParticle(bounds))
+    const particleCount = Math.min(1100, Math.max(450, Math.round((width * height) / 1100)))
+    windParticles = Array.from({ length: particleCount }, () => ({
+      ...createWindParticle(bounds),
+      age: Math.floor(Math.random() * WIND_PARTICLE_MAX_AGE),
+    }))
   }
 
+  context.globalCompositeOperation = 'destination-out'
+  context.fillStyle = 'rgba(0, 0, 0, 0.06)'
+  context.fillRect(0, 0, width, height)
+  context.globalCompositeOperation = 'source-over'
+
   const hourIndex = Math.min(windForecastIndex.value, windForecastTimes.value.length - 1)
-  const delta = Math.min(deltaMilliseconds, 40)
-  context.lineWidth = 1.9
+  const frameScale = Math.min(deltaMilliseconds, 40) / 16
   context.lineCap = 'round'
-  context.shadowBlur = 2
   for (let index = 0; index < windParticles.length; index += 1) {
     const particle = windParticles[index]
-    if (!bounds.contains([particle.longitude, particle.latitude])) {
-      windParticles[index] = createWindParticle(bounds)
+    particle.age += 1
+    if (particle.age > WIND_PARTICLE_MAX_AGE || !bounds.contains([particle.longitude, particle.latitude])) {
+      windParticles[index] = respawnWindParticle(bounds)
       continue
     }
     const feature = nearestWindPoint(particle.longitude, particle.latitude)
@@ -865,35 +890,37 @@ function drawWindForecastFrame(timestamp, deltaMilliseconds = 16) {
     const speed = Number(properties.wind_speed_10m_mps[hourIndex] ?? 0)
     const fromDirection = Number(properties.wind_direction_10m_deg[hourIndex] ?? 0)
     const direction = (fromDirection + 180) * Math.PI / 180
-    const distance = speed * delta * 0.00008
-    const oldLongitude = particle.longitude
-    const oldLatitude = particle.latitude
-    particle.longitude += Math.sin(direction) * distance / Math.max(0.25, Math.cos(oldLatitude * Math.PI / 180))
-    particle.latitude += Math.cos(direction) * distance
+    // Move in screen pixels so the motion looks the same at every zoom level.
+    const pixels = (0.7 + Math.min(speed, 25) * 0.17) * frameScale
+    const start = map.project([particle.longitude, particle.latitude])
+    const end = { x: start.x + Math.sin(direction) * pixels, y: start.y - Math.cos(direction) * pixels }
+    const next = map.unproject([end.x, end.y])
+    particle.longitude = next.lng
+    particle.latitude = next.lat
     if (
       particle.longitude < 114 || particle.longitude > 130
       || particle.latitude < 1.5 || particle.latitude > 25.5
     ) {
-      windParticles[index] = createWindParticle(bounds)
+      windParticles[index] = respawnWindParticle(bounds)
       continue
     }
-    const start = map.project([oldLongitude, oldLatitude])
-    const end = map.project([particle.longitude, particle.latitude])
-    const screenDistance = Math.hypot(end.x - start.x, end.y - start.y)
-    if (screenDistance < 0.01) continue
-    const trailLength = 8 + Math.min(speed, 30) * 0.5
-    const unitX = (end.x - start.x) / screenDistance
-    const unitY = (end.y - start.y) / screenDistance
-    context.strokeStyle = windParticleColor(speed)
-    context.globalAlpha = 0.9
-    context.shadowColor = '#12202c'
+    const visibility = Math.min(1, particle.age / 8, (WIND_PARTICLE_MAX_AGE - particle.age) / 16)
+    context.globalAlpha = 0.5 * visibility
+    context.lineWidth = 3
+    context.strokeStyle = '#102030'
     context.beginPath()
-    context.moveTo(end.x - (unitX * trailLength), end.y - (unitY * trailLength))
+    context.moveTo(start.x, start.y)
+    context.lineTo(end.x, end.y)
+    context.stroke()
+    context.globalAlpha = 0.95 * visibility
+    context.lineWidth = 1.7
+    context.strokeStyle = windParticleColor(speed)
+    context.beginPath()
+    context.moveTo(start.x, start.y)
     context.lineTo(end.x, end.y)
     context.stroke()
   }
   context.globalAlpha = 1
-  context.shadowBlur = 0
 }
 
 function startWindParticleAnimation() {
@@ -1047,6 +1074,7 @@ onMounted(() => {
     attributionControl: true,
   })
   map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right')
+  void loadFloodModelStatus()
   map.on('click', (event) => {
     selectionMarker?.remove()
     selectionMarker = new mapboxgl.Marker({ color: '#277ca5' }).setLngLat(event.lngLat).addTo(map)
@@ -1086,8 +1114,7 @@ onBeforeUnmount(() => {
   satelliteRequestSequence += 1
   windForecastRequestSequence += 1
   window.cancelAnimationFrame(windAnimationFrame)
-  satelliteImageUrls.forEach((url) => URL.revokeObjectURL(url))
-  satelliteImageUrls = []
+  window.clearInterval(satelliteAnimationTimer)
   resizeObserver?.disconnect()
   map?.remove()
   map = undefined

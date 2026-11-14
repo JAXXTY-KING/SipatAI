@@ -22,13 +22,45 @@ from app.integrations.flood_screening_client import (
 from app.integrations.himawari_client import (
     BANDS as HIMAWARI_BANDS,
     HimawariServiceError,
+    get_himawari_cloud_tile,
     get_himawari_frames,
     get_himawari_image,
+    get_himawari_tile_frames,
     get_latest_himawari_image,
 )
 from app.schemas.weather import WeatherRequest
 
 router = APIRouter(prefix="/weather", tags=["weather context"])
+
+
+@router.get("/himawari/tile-frames", include_in_schema=False)
+async def read_himawari_tile_frames() -> dict[str, Any]:
+    """Return recent JMA full-disk observation times for tiled cloud playback."""
+    try:
+        return {"frames": await get_himawari_tile_frames()}
+    except HimawariServiceError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+
+@router.get("/himawari/tiles/{time_code}/{z}/{x}/{y}.png", include_in_schema=False)
+async def read_himawari_cloud_tile(
+    time_code: str = Path(pattern="^\\d{14}$"),
+    z: int = Path(ge=0, le=12),
+    x: int = Path(ge=0),
+    y: int = Path(ge=0),
+) -> Response:
+    """Serve a transparent cloud-only tile derived from JMA Himawari-9 infrared imagery."""
+    try:
+        tile = await get_himawari_cloud_tile(time_code, z, x, y)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except HimawariServiceError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    return Response(
+        content=tile,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=1800"},
+    )
 
 
 @router.get("/himawari/frames", include_in_schema=False)

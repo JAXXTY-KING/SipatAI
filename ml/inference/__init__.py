@@ -1,0 +1,1 @@
+"""Local MindSpore inference."""
