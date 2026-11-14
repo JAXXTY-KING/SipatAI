@@ -62,6 +62,11 @@
             <div v-if="aiResult" class="ai-flood-result" role="status">
               <strong>{{ aiResult.statistics.flooded_area_km2 }} km² flooded</strong>
               <span>{{ (aiResult.statistics.flooded_fraction * 100).toFixed(1) }}% of the {{ aiResult.statistics.tile_area_km2 }} km² tile</span>
+              <span v-if="aiResult.cropland" class="ai-flood-cropland">
+                🌾 {{ aiResult.cropland.flooded_cropland_km2 }} km² of {{ aiResult.cropland.cropland_area_km2 }} km² cropland flooded
+                <template v-if="aiResult.cropland.flooded_share_of_cropland !== null">({{ (aiResult.cropland.flooded_share_of_cropland * 100).toFixed(1) }}%)</template>
+              </span>
+              <small v-if="aiResult.cropland">Blue = flooded land · orange = flooded cropland (ESA WorldCover 2021)</small>
               <small>Radar {{ aiResult.observations.sentinel_1.datetime.slice(0, 10) }} · Optical {{ aiResult.observations.sentinel_2.datetime.slice(0, 10) }} ({{ aiResult.observations.sentinel_2.cloud_cover_percent }}% cloud)</small>
               <small v-for="warning in aiResult.warnings" :key="warning">⚠ {{ warning }}</small>
               <button class="parcel-refresh-button" type="button" @click="clearFloodOverlay">Clear overlay</button>

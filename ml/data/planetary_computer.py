@@ -20,6 +20,8 @@ STAC_SEARCH_URL = "https://planetarycomputer.microsoft.com/api/stac/v1/search"
 TOKEN_URL = "https://planetarycomputer.microsoft.com/api/sas/v1/token/{collection}"
 SENTINEL_1 = "sentinel-1-rtc"
 SENTINEL_2 = "sentinel-2-l2a"
+WORLDCOVER = "esa-worldcover"
+WORLDCOVER_CROPLAND = 40
 PIXEL_SIZE_METRES = 10.0
 CLEAR_SCL_CLASSES = (4, 5, 6, 7)
 MIN_VALID_FRACTION = 0.9
@@ -171,6 +173,23 @@ def select_sentinel_1(items: list[dict[str, Any]], target: str | None = None) ->
             datetime.fromisoformat(item["properties"]["datetime"].replace("Z", "+00:00")).timestamp() - target_time
         ),
     )
+
+
+def read_cropland(grid: Grid) -> np.ndarray | None:
+    """Return a boolean cropland mask from ESA WorldCover 2021 (class 40), or None if unavailable."""
+    body = {"collections": [WORLDCOVER], "bbox": list(grid_bbox(grid)), "limit": 10}
+    response = httpx.post(STAC_SEARCH_URL, json=body, timeout=45.0)
+    response.raise_for_status()
+    items = [
+        item for item in response.json().get("features", [])
+        if item["properties"].get("esa_worldcover:product_version") == "2.0.0" and _covers(item, grid_bbox(grid))
+    ]
+    if not items:
+        return None
+    classes = _read_band(WORLDCOVER, items[0]["assets"]["map"]["href"], grid, Resampling.nearest)
+    if np.isfinite(classes).mean() < MIN_VALID_FRACTION:
+        return None
+    return np.nan_to_num(classes, nan=0.0) == WORLDCOVER_CROPLAND
 
 
 def read_radar(item: dict[str, Any], grid: Grid) -> tuple[np.ndarray, np.ndarray]:

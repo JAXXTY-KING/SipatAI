@@ -36,3 +36,15 @@ def test_overlay_is_transparent_where_dry():
     probability = np.zeros((4, 4), dtype=np.float32)
     probability[1, 1] = 0.9
     assert service._overlay_png(probability).startswith("data:image/png;base64,")
+
+
+def test_cropland_statistics_count_only_flooded_cropland():
+    flooded = np.zeros((10, 10), dtype=bool)
+    flooded[:5] = True
+    cropland = np.zeros((10, 10), dtype=bool)
+    cropland[3:8] = True
+    stats = service._cropland_statistics(flooded, cropland, pixel_area_km2=0.0001)
+    assert stats["cropland_area_km2"] == 0.005
+    assert stats["flooded_cropland_km2"] == 0.002
+    assert stats["flooded_share_of_cropland"] == 0.4
+    assert service._cropland_statistics(flooded, None, 0.0001) is None

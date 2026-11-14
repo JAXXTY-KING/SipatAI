@@ -16,6 +16,7 @@ if str(REPOSITORY_ROOT) not in sys.path:
 
 FLOOD_THRESHOLD = 0.5
 FLOOD_COLOUR = (37, 99, 235)
+CROPLAND_FLOOD_COLOUR = (234, 88, 12)
 CACHE_SIZE = 16
 LATEST_WINDOW_DAYS = 30
 EVENT_RADAR_WINDOW_DAYS = 7
@@ -84,6 +85,7 @@ def get_model_status() -> dict[str, Any]:
         label_source=card.get("label_source"),
         validation=validation[-1]["validation"] if validation and "validation" in validation[-1] else None,
         test=card.get("test"),
+        decision_threshold=card.get("decision_threshold"),
         trained_epochs=len(card.get("history", [])) or None,
     )
     return status
@@ -105,14 +107,39 @@ def _date_ranges(requested: str | None) -> tuple[str, str, str | None]:
     )
 
 
-def _overlay_png(probability: np.ndarray) -> str:
-    flooded = probability >= FLOOD_THRESHOLD
+def _decision_threshold() -> float:
+    """Flood decision threshold recorded in the model card (chosen on validation data)."""
+    from ml.inference.predictor import read_model_card
+
+    value = read_model_card(get_flood_model_checkpoint()).get("decision_threshold", FLOOD_THRESHOLD)
+    return float(value) if 0.0 < float(value) < 1.0 else FLOOD_THRESHOLD
+
+
+def _overlay_png(probability: np.ndarray, cropland: np.ndarray | None = None, threshold: float = FLOOD_THRESHOLD) -> str:
+    """Draw flooded pixels in blue, and flooded cropland in orange when land cover is known."""
+    flooded = probability >= threshold
     rgba = np.zeros((*probability.shape, 4), dtype=np.uint8)
     rgba[flooded, :3] = FLOOD_COLOUR
+    if cropland is not None:
+        rgba[flooded & cropland, :3] = CROPLAND_FLOOD_COLOUR
     rgba[flooded, 3] = np.clip(120 + probability[flooded] * 110, 0, 230).astype(np.uint8)
     buffer = io.BytesIO()
     Image.fromarray(rgba, mode="RGBA").save(buffer, format="PNG", optimize=True)
     return "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
+
+
+def _cropland_statistics(flooded: np.ndarray, cropland: np.ndarray | None, pixel_area_km2: float) -> dict[str, Any] | None:
+    """Summarise flooding on ESA WorldCover cropland; None when land cover was unavailable."""
+    if cropland is None:
+        return None
+    cropland_pixels = int(cropland.sum())
+    flooded_pixels = int((flooded & cropland).sum())
+    return {
+        "cropland_area_km2": round(cropland_pixels * pixel_area_km2, 3),
+        "flooded_cropland_km2": round(flooded_pixels * pixel_area_km2, 3),
+        "flooded_share_of_cropland": round(flooded_pixels / cropland_pixels, 4) if cropland_pixels else None,
+        "land_cover_source": "ESA WorldCover 2021 v200, class 40 (cropland), 10 m",
+    }
 
 
 def _permanent_water_mask(pc, grid, bbox, radar_target: str | None) -> np.ndarray:
@@ -163,13 +190,23 @@ def analyze_area(longitude: float, latitude: float, requested_date: str | None) 
     probability = predictor.predict_probability(scene.features)
     permanent_water = _permanent_water_mask(pc, grid, bbox, radar_target)
     probability = np.where(permanent_water, 0.0, probability).astype(np.float32)
-    flooded = probability >= FLOOD_THRESHOLD
+    threshold = _decision_threshold()
+    flooded = probability >= threshold
+    try:
+        cropland = pc.read_cropland(grid)
+    except Exception:
+        cropland = None
     pixel_area_km2 = pc.PIXEL_SIZE_METRES**2 / 1_000_000
     clear_fraction = float(scene.optical_clear.mean())
+    warnings = []
+    if clear_fraction < 0.5:
+        warnings.append("Optical imagery over this tile is mostly cloudy; optical channels are unreliable.")
+    if cropland is None:
+        warnings.append("Land cover was unavailable, so flooded cropland could not be calculated.")
     result = {
         "model": {"framework": "MindSpore", "architecture": "ResNet-50 U-Net"},
         "overlay": {
-            "image": _overlay_png(probability),
+            "image": _overlay_png(probability, cropland, threshold),
             "coordinates": [[float(x), float(y)] for x, y in grid.corners],
         },
         "statistics": {
@@ -178,6 +215,7 @@ def analyze_area(longitude: float, latitude: float, requested_date: str | None) 
             "flooded_fraction": round(float(flooded.mean()), 4),
             "mean_flood_confidence": round(float(probability[flooded].mean()), 3) if flooded.any() else None,
         },
+        "cropland": _cropland_statistics(flooded, cropland, pixel_area_km2),
         "observations": {
             "sentinel_1": {"id": scene.sentinel_1_id, "datetime": scene.sentinel_1_datetime},
             "sentinel_2": {
@@ -187,11 +225,7 @@ def analyze_area(longitude: float, latitude: float, requested_date: str | None) 
                 "clear_pixel_fraction": round(clear_fraction, 3),
             },
         },
-        "warnings": (
-            ["Optical imagery over this tile is mostly cloudy; optical channels are unreliable."]
-            if clear_fraction < 0.5
-            else []
-        ),
+        "warnings": warnings,
     }
     with _cache_lock:
         _result_cache[cache_key] = result

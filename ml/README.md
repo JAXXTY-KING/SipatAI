@@ -12,11 +12,13 @@ All commands run from the repository root with the ML environment (`ml\.venv\Scr
 
 The served model is trained on [Sen1Floods11](https://github.com/cloudtostreet/Sen1Floods11) hand-labelled flood chips (446 chips from 11 real flood events, public, no account). Its Sentinel-1 radar and Sentinel-2 optical bands are converted to the same six channels used at inference, and the official train / validation / test / Bolivia splits are kept separate. Labels mark water in the flood image, so the backend subtracts permanent water at inference to report flooding.
 
-| Split | IoU | F1 |
+| Split | IoU (threshold 0.5) | IoU (threshold 0.6) |
 |---|---|---|
-| Validation (checkpoint selection) | 0.72 | 0.84 |
-| Test (unseen chips) | 0.75 | 0.86 |
-| Bolivia (unseen flood event) | 0.76 | 0.87 |
+| Validation (used to pick the threshold) | 0.72 | 0.73 |
+| Test (unseen chips) | 0.75 | 0.77 |
+| Bolivia (unseen flood event) | 0.76 | 0.79 |
+
+The decision threshold (0.6) was chosen on the validation split alone and is stored in `model_card.json`; the backend reads it. Test-time flip averaging was tried and added only about 0.003 IoU for three times the compute, so it is not used.
 
 The earlier model, trained only on 16 automatically labelled tiles, scored IoU 0.32 on its own validation tiles.
 
@@ -41,7 +43,7 @@ Pass the resulting manifests to `ml.training.train` as above, with a `--label-so
 ### Serving and deployment
 
 3. **Serve** with `backend/requirements-ml.txt` installed. The backend loads `ml/artifacts/checkpoints/sipatai-best.ckpt` (override with `SIPATAI_MODEL_CHECKPOINT`) and exposes `GET /api/v1/model/status` and `POST /api/v1/model/analyze`; the map's "MindSpore flood AI" panel calls them.
-   At inference the backend also removes permanent water (sea, rivers, ponds) using a dry-season Sentinel-1 reference. Points over open sea return "no radar scene" because Sentinel-1 RTC covers land only. Irrigated paddies and fishponds can look like water, so results are not an official flood boundary.
+   At inference the backend also removes permanent water (sea, rivers, ponds) using a dry-season Sentinel-1 reference, and reports flooded cropland using ESA WorldCover 2021 (class 40, 10 m, public on Planetary Computer). Parcel boundaries are not used: no parcel dataset is connected. Points over open sea return "no radar scene" because Sentinel-1 RTC covers land only. Irrigated paddies and fishponds can look like water, so results are not an official flood boundary.
 4. **Deploy to Huawei Cloud** by exporting MindIR with `ml/export/export_model.py` and hosting it on ModelArts (see `docs/huawei_cloud.md`). Ascend execution is not validated here.
 
 Checkpoints and tiles are git-ignored (`ml/artifacts/`) because a checkpoint is about 160 MB.
