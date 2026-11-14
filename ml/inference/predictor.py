@@ -17,19 +17,25 @@ class CheckpointError(RuntimeError):
     """Raised when a trained checkpoint is missing or incompatible with the network."""
 
 
+def load_network(checkpoint_path: Path) -> ResNet50UNet:
+    """Build the network and load trained weights, validating that all parameters match."""
+    if not checkpoint_path.is_file():
+        raise CheckpointError(f"Checkpoint not found: {checkpoint_path}")
+    network = ResNet50UNet()
+    unmatched, _ = load_param_into_net(network, load_checkpoint(str(checkpoint_path)))
+    if unmatched:
+        raise CheckpointError("Checkpoint does not contain all parameters required by ResNet50UNet.")
+    network.set_train(False)
+    return network
+
+
 class FloodPredictor:
     """Run the trained MindSpore ResNet-50 U-Net on one 512 by 512 feature tile."""
 
     def __init__(self, checkpoint_path: Path, device_target: str = "CPU") -> None:
-        if not checkpoint_path.is_file():
-            raise CheckpointError(f"Checkpoint not found: {checkpoint_path}")
         ms.set_device(device_target)
         ms.set_context(mode=ms.PYNATIVE_MODE)
-        self.network = ResNet50UNet()
-        unmatched, _ = load_param_into_net(self.network, load_checkpoint(str(checkpoint_path)))
-        if unmatched:
-            raise CheckpointError("Checkpoint does not contain all parameters required by ResNet50UNet.")
-        self.network.set_train(False)
+        self.network = load_network(checkpoint_path)
         self.checkpoint_path = checkpoint_path
         self._lock = threading.Lock()
 

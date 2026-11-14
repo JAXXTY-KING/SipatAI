@@ -40,11 +40,11 @@
           <div class="map-tools-group-content">
             <p class="parcel-map-attribution">
               Runs a MindSpore ResNet-50 U-Net on real Sentinel-1 radar and Sentinel-2 optical imagery for a 5 km tile at the selected point
-              (or the map centre). Experimental: trained on weak labels, not an official flood boundary.
+              (or the map centre). Experimental: not an official flood boundary.
             </p>
             <p v-if="aiModelStatus && !aiModelStatus.ready" class="parcel-map-status" role="status">{{ aiModelStatus.reason }}</p>
             <p v-else-if="aiModelStatus?.validation" class="parcel-map-status">
-              Held-out validation: IoU {{ aiModelStatus.validation.iou.toFixed(2) }} · F1 {{ aiModelStatus.validation.f1.toFixed(2) }}
+              Trained on human-labelled Sen1Floods11 floods. Unseen test floods: IoU {{ (aiModelStatus.test?.test ?? aiModelStatus.validation).iou.toFixed(2) }} · F1 {{ (aiModelStatus.test?.test ?? aiModelStatus.validation).f1.toFixed(2) }}
             </p>
             <label class="weather-layer-select">
               Event date (optional, for past floods)

@@ -17,7 +17,8 @@ def evaluate(network: nn.Cell, validation_data) -> dict[str, float]:
     true_positive = false_positive = false_negative = 0
     for batch in validation_data.create_dict_iterator(output_numpy=True):
         logits = network(ms.Tensor(batch["image"], ms.float32)).asnumpy()
-        predicted = logits.argmax(axis=1) == 1
+        valid = batch["mask"] >= 0
+        predicted = (logits.argmax(axis=1) == 1) & valid
         actual = batch["mask"] == 1
         true_positive += int((predicted & actual).sum())
         false_positive += int((predicted & ~actual).sum())
@@ -91,12 +92,19 @@ def train_model(arguments: argparse.Namespace) -> None:
                 save_checkpoint(network, str(arguments.checkpoint_dir / "sipatai-best.ckpt"))
                 entry["best"] = True
             print(f"Epoch {epoch}/{arguments.epochs}: mean loss {mean_loss:.6f}, validation {metrics}")
+            history.append(entry)
+            write_model_card(arguments, history)
         else:
             print(f"Epoch {epoch}/{arguments.epochs}: mean loss {mean_loss:.6f}")
-        history.append(entry)
+            history.append(entry)
 
     if validation_data is None:
         save_checkpoint(network, str(arguments.checkpoint_dir / "sipatai-best.ckpt"))
+    write_model_card(arguments, history)
+
+
+def write_model_card(arguments: argparse.Namespace, history: list[dict]) -> None:
+    """Record training provenance next to the checkpoint; rewritten after each validation."""
     card = {
         "model": "ResNet50UNet (MindSpore)",
         "mindspore_version": ms.__version__,

@@ -6,7 +6,7 @@ import numpy as np
 
 from ml.configs.model_config import CLASS_COUNT, INPUT_CHANNEL_COUNT, INPUT_SIZE
 
-POSITIVE_CROP_PROBABILITY = 0.7
+POSITIVE_CROP_PROBABILITY = 0.5
 
 
 class TiledFloodDataset:
@@ -50,22 +50,32 @@ class TiledFloodDataset:
                 raise ValueError(f"{mask_path} must contain integer class labels.")
             if not np.isfinite(image_mapping).all():
                 raise ValueError(f"{image_path} contains non-finite pixel values.")
-            if not np.isin(mask_mapping, np.arange(CLASS_COUNT)).all():
-                raise ValueError(f"{mask_path} contains labels outside the configured class range.")
+            if not np.isin(mask_mapping, np.arange(-1, CLASS_COUNT)).all():
+                raise ValueError(f"{mask_path} contains labels outside the configured class range (-1 means no data).")
 
             image_tile = np.array(image_mapping, dtype=np.float32, copy=True)
             mask_tile = np.array(mask_mapping, dtype=np.int32, copy=True)
             if self.crop_size is not None:
                 row, column = self._crop_origin(mask_tile)
                 window = (slice(row, row + self.crop_size), slice(column, column + self.crop_size))
-                image_tile = np.ascontiguousarray(image_tile[(slice(None), *window)])
-                mask_tile = np.ascontiguousarray(mask_tile[window])
+                image_tile = image_tile[(slice(None), *window)]
+                mask_tile = mask_tile[window]
+                image_tile, mask_tile = self._augment(image_tile, mask_tile)
             return image_tile, mask_tile
         finally:
             for mapping in (image_mapping, mask_mapping):
                 mmap_handle = getattr(mapping, "_mmap", None)
                 if mmap_handle is not None:
                     mmap_handle.close()
+
+    def _augment(self, image_tile: np.ndarray, mask_tile: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Apply the same random flip and 90-degree rotation to a crop and its mask."""
+        if self._random.random() < 0.5:
+            image_tile, mask_tile = image_tile[:, :, ::-1], mask_tile[:, ::-1]
+        rotations = int(self._random.integers(4))
+        image_tile = np.rot90(image_tile, rotations, axes=(1, 2))
+        mask_tile = np.rot90(mask_tile, rotations)
+        return np.ascontiguousarray(image_tile), np.ascontiguousarray(mask_tile)
 
     def _crop_origin(self, mask_tile: np.ndarray) -> tuple[int, int]:
         """Choose a crop origin, favouring windows that contain flooded pixels.

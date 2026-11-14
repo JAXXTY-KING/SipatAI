@@ -43,3 +43,20 @@ def test_tile_centres_cover_bbox_without_overlap():
     centres = tile_centres((120.75, 14.95, 120.95, 15.20), max_tiles=100)
     assert 15 <= len(centres) <= 30
     assert len(tile_centres((120.75, 14.95, 120.95, 15.20), max_tiles=3)) == 3
+
+
+def test_loss_ignores_no_data_pixels():
+    import mindspore as ms
+    from mindspore import Tensor
+
+    from ml.losses.weighted_focal_dice import WeightedFocalDiceLoss
+
+    ms.set_context(mode=ms.PYNATIVE_MODE)
+    loss = WeightedFocalDiceLoss((1.0, 2.0), 2.0, 1.0)
+    random = np.random.default_rng(0)
+    logits = random.normal(size=(1, 2, 8, 8)).astype(np.float32)
+    target = random.integers(0, 2, size=(1, 8, 8)).astype(np.int32)
+    target[:, :, 4:] = -1
+    changed = logits.copy()
+    changed[:, :, :, 4:] += 5.0
+    assert abs(float(loss(Tensor(logits), Tensor(target)).asnumpy()) - float(loss(Tensor(changed), Tensor(target)).asnumpy())) < 1e-5

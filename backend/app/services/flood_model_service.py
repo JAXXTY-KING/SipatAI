@@ -83,7 +83,8 @@ def get_model_status() -> dict[str, Any]:
         ready=True,
         label_source=card.get("label_source"),
         validation=validation[-1]["validation"] if validation and "validation" in validation[-1] else None,
-        trained_epochs=card.get("hyperparameters", {}).get("epochs"),
+        test=card.get("test"),
+        trained_epochs=len(card.get("history", [])) or None,
     )
     return status
 
