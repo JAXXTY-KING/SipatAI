@@ -176,20 +176,26 @@ def select_sentinel_1(items: list[dict[str, Any]], target: str | None = None) ->
 
 
 def read_cropland(grid: Grid) -> np.ndarray | None:
-    """Return a boolean cropland mask from ESA WorldCover 2021 (class 40), or None if unavailable."""
-    body = {"collections": [WORLDCOVER], "bbox": list(grid_bbox(grid)), "limit": 10}
+    """Return a boolean cropland mask from ESA WorldCover 2021 (class 40), or None if unavailable.
+
+    WorldCover is published in 3 degree tiles, so a tile near a boundary is assembled from several.
+    """
+    bbox = grid_bbox(grid)
+    body = {"collections": [WORLDCOVER], "bbox": list(bbox), "limit": 10}
     response = httpx.post(STAC_SEARCH_URL, json=body, timeout=45.0)
     response.raise_for_status()
     items = [
         item for item in response.json().get("features", [])
-        if item["properties"].get("esa_worldcover:product_version") == "2.0.0" and _covers(item, grid_bbox(grid))
+        if item["properties"].get("esa_worldcover:product_version") == "2.0.0"
     ]
     if not items:
         return None
-    classes = _read_band(WORLDCOVER, items[0]["assets"]["map"]["href"], grid, Resampling.nearest)
-    if np.isfinite(classes).mean() < MIN_VALID_FRACTION:
+    classes = np.zeros(INPUT_SIZE, dtype=np.float32)
+    for item in items:
+        classes = np.maximum(classes, np.nan_to_num(_read_band(WORLDCOVER, item["assets"]["map"]["href"], grid, Resampling.nearest), nan=0.0))
+    if (classes != 0).mean() < MIN_VALID_FRACTION:
         return None
-    return np.nan_to_num(classes, nan=0.0) == WORLDCOVER_CROPLAND
+    return classes == WORLDCOVER_CROPLAND
 
 
 def read_radar(item: dict[str, Any], grid: Grid) -> tuple[np.ndarray, np.ndarray]:

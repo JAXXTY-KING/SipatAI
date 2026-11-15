@@ -31,6 +31,8 @@ Follow the exact Windows steps in `docs/setup_windows.md`. The frontend runs sep
 - `GET /api/v1/barangay/summary`
 - `GET /api/v1/damage-map`
 - `GET /api/v1/parcels/map?west=<longitude>&south=<latitude>&east=<longitude>&north=<latitude>` (imported parcels within the current map viewport)
+- `GET /api/v1/model/assessments` and `GET /api/v1/model/assessments/{id}` (saved MindSpore satellite assessments, stored in a local SQLite file `backend/data/satellite_assessments.sqlite`; no GaussDB needed)
+- `POST /api/v1/reports/satellite-assessment/{id}` (PDF of one saved satellite assessment)
 - `POST /api/v1/analyze` (requires a configured ModelArts endpoint)
 - `GET /api/v1/model/status` (local MindSpore model readiness, provenance and held-out validation metrics)
 - `POST /api/v1/model/analyze` (runs the local MindSpore ResNet-50 U-Net on real Sentinel-1/2 data for a 5 km tile around `latitude`/`longitude`, optional `date`; returns a map overlay and flooded area; requires `backend/requirements-ml.txt` and a trained checkpoint)

@@ -96,6 +96,8 @@
       </template>
     </section>
 
+    <SatelliteAssessments />
+
     <section class="data-section assessment-status-panel" aria-labelledby="assessment-status-heading">
       <div class="section-heading">
         <div><p class="eyebrow">DATABASE ASSESSMENT</p><h2 id="assessment-status-heading">Completed agricultural assessment</h2></div>
@@ -155,6 +157,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { fetchDashboardSummary, fetchFloodScreening } from '../api/client'
+import SatelliteAssessments from '../components/SatelliteAssessments.vue'
 
 const assessment = ref(null)
 const screening = ref(null)

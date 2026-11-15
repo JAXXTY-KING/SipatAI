@@ -10,6 +10,14 @@ import numpy as np
 from PIL import Image
 
 from app.core.config import REPOSITORY_ROOT, get_flood_model_checkpoint
+from app.db.assessment_store import save_assessment
+from app.integrations.ftw_fields_client import (
+    AVAILABLE_YEARS,
+    FieldBoundaryError,
+    field_year_for,
+    fetch_fields,
+)
+from app.services.field_assessment_service import assess_fields
 
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
@@ -203,6 +211,21 @@ def analyze_area(longitude: float, latitude: float, requested_date: str | None) 
         warnings.append("Optical imagery over this tile is mostly cloudy; optical channels are unreliable.")
     if cropland is None:
         warnings.append("Land cover was unavailable, so flooded cropland could not be calculated.")
+
+    field_year = field_year_for(int(requested_date[:4]) if requested_date else None)
+    field_collection, field_summary = None, None
+    try:
+        field_result = assess_fields(
+            fetch_fields(bbox, field_year), flooded, grid.crs, grid.transform, field_year
+        )
+        field_collection, field_summary = field_result["geojson"], field_result["summary"]
+        if requested_date and int(requested_date[:4]) not in AVAILABLE_YEARS:
+            warnings.append(f"Field boundaries are from {field_year}, the closest available mapping year to the event.")
+        if field_summary["fields_analysed"] == 0:
+            warnings.append("No mapped farm fields were found in this tile.")
+    except FieldBoundaryError:
+        warnings.append("Field boundaries could not be retrieved, so per-field results are unavailable.")
+
     result = {
         "model": {"framework": "MindSpore", "architecture": "ResNet-50 U-Net"},
         "overlay": {
@@ -216,6 +239,8 @@ def analyze_area(longitude: float, latitude: float, requested_date: str | None) 
             "mean_flood_confidence": round(float(probability[flooded].mean()), 3) if flooded.any() else None,
         },
         "cropland": _cropland_statistics(flooded, cropland, pixel_area_km2),
+        "fields": field_collection,
+        "field_summary": field_summary,
         "observations": {
             "sentinel_1": {"id": scene.sentinel_1_id, "datetime": scene.sentinel_1_datetime},
             "sentinel_2": {
@@ -227,6 +252,10 @@ def analyze_area(longitude: float, latitude: float, requested_date: str | None) 
         },
         "warnings": warnings,
     }
+    saved = {key: result[key] for key in ("model", "statistics", "cropland", "field_summary", "observations", "warnings")}
+    saved["decision_threshold"] = threshold
+    result["assessment_id"] = save_assessment(latitude, longitude, requested_date, saved)
+
     with _cache_lock:
         _result_cache[cache_key] = result
         while len(_result_cache) > CACHE_SIZE:

@@ -23,6 +23,8 @@
       </button>
     </section>
 
+    <SatelliteAssessments with-reports />
+
     <section class="report-summary assessment-report-card">
       <template v-if="loading">
         <p class="connection-note" role="status">Checking for a completed database assessment…</p>
@@ -52,6 +54,7 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { downloadAssessmentReport, downloadFloodScreeningReport, fetchDashboardSummary, fetchFloodScreening } from '../api/client'
+import SatelliteAssessments from '../components/SatelliteAssessments.vue'
 
 const assessment = ref(null)
 const screening = ref(null)

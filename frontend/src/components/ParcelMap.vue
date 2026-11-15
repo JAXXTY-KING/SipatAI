@@ -67,6 +67,17 @@
                 <template v-if="aiResult.cropland.flooded_share_of_cropland !== null">({{ (aiResult.cropland.flooded_share_of_cropland * 100).toFixed(1) }}%)</template>
               </span>
               <small v-if="aiResult.cropland">Blue = flooded land · orange = flooded cropland (ESA WorldCover 2021)</small>
+              <div v-if="aiResult.field_summary" class="ai-field-summary">
+                <strong>{{ aiResult.field_summary.fields_affected }} of {{ aiResult.field_summary.fields_analysed }} mapped fields affected</strong>
+                <span>{{ aiResult.field_summary.flooded_field_area_ha }} ha flooded of {{ aiResult.field_summary.field_area_ha }} ha of fields</span>
+                <span class="ai-field-counts">
+                  <i class="ai-dot" :style="{ background: severityColors.Severe }"></i>Severe {{ aiResult.field_summary.severity_counts.Severe }}
+                  <i class="ai-dot" :style="{ background: severityColors.Moderate }"></i>Moderate {{ aiResult.field_summary.severity_counts.Moderate }}
+                  <i class="ai-dot" :style="{ background: severityColors.Light }"></i>Light {{ aiResult.field_summary.severity_counts.Light }}
+                </span>
+                <small>Field outlines: Fields of The World {{ aiResult.field_summary.field_year }} (CC-BY-4.0), detected from Sentinel-2, not legal parcels. Click a field for details. Classes are by flooded share (60%+, 30–60%, 10–30%), a prototype display scale, not a damage grade.</small>
+              </div>
+              <small>Saved as assessment #{{ aiResult.assessment_id }} · see Dashboard and Report center.</small>
               <small>Radar {{ aiResult.observations.sentinel_1.datetime.slice(0, 10) }} · Optical {{ aiResult.observations.sentinel_2.datetime.slice(0, 10) }} ({{ aiResult.observations.sentinel_2.cloud_cover_percent }}% cloud)</small>
               <small v-for="warning in aiResult.warnings" :key="warning">⚠ {{ warning }}</small>
               <button class="parcel-refresh-button" type="button" @click="clearFloodOverlay">Clear overlay</button>
@@ -302,11 +313,52 @@ const aiAnalysisError = ref('')
 const isAnalyzingFlood = ref(false)
 const todayIso = new Date().toISOString().slice(0, 10)
 const AI_OVERLAY_ID = 'ai-flood-overlay'
+const AI_FIELDS_ID = 'ai-flood-fields'
+const AI_FIELDS_FILL_ID = 'ai-flood-fields-fill'
+const AI_FIELDS_OUTLINE_ID = 'ai-flood-fields-outline'
 
 function clearFloodOverlay() {
-  if (map?.getLayer(AI_OVERLAY_ID)) map.removeLayer(AI_OVERLAY_ID)
-  if (map?.getSource(AI_OVERLAY_ID)) map.removeSource(AI_OVERLAY_ID)
+  for (const layerId of [AI_FIELDS_OUTLINE_ID, AI_FIELDS_FILL_ID, AI_OVERLAY_ID]) {
+    if (map?.getLayer(layerId)) map.removeLayer(layerId)
+  }
+  for (const sourceId of [AI_FIELDS_ID, AI_OVERLAY_ID]) {
+    if (map?.getSource(sourceId)) map.removeSource(sourceId)
+  }
   aiResult.value = null
+}
+
+function addFieldLayers(fields) {
+  map.addSource(AI_FIELDS_ID, { type: 'geojson', data: fields })
+  const severityColor = [
+    'match', ['get', 'severity'],
+    'Severe', severityColors.Severe,
+    'Moderate', severityColors.Moderate,
+    'Light', severityColors.Light,
+    '#4d8f6b',
+  ]
+  map.addLayer({
+    id: AI_FIELDS_FILL_ID,
+    type: 'fill',
+    source: AI_FIELDS_ID,
+    paint: { 'fill-color': severityColor, 'fill-opacity': ['match', ['get', 'severity'], 'Unaffected', 0.08, 0.55] },
+  })
+  map.addLayer({
+    id: AI_FIELDS_OUTLINE_ID,
+    type: 'line',
+    source: AI_FIELDS_ID,
+    paint: { 'line-color': severityColor, 'line-width': ['match', ['get', 'severity'], 'Unaffected', 0.6, 1.4] },
+  })
+  map.on('click', AI_FIELDS_FILL_ID, (event) => {
+    const properties = event.features?.[0]?.properties
+    if (!properties) return
+    new mapboxgl.Popup({ closeButton: false })
+      .setLngLat(event.lngLat)
+      .setHTML(
+        `<strong>${properties.severity}</strong><br>${properties.flooded_ha} of ${properties.area_ha} ha flooded `
+        + `(${(properties.flooded_share * 100).toFixed(0)}%)<br><small>Detected field · confidence ${properties.confidence}%</small>`,
+      )
+      .addTo(map)
+  })
 }
 
 async function loadFloodModelStatus() {
@@ -332,6 +384,7 @@ async function runFloodAnalysis() {
     clearFloodOverlay()
     map.addSource(AI_OVERLAY_ID, { type: 'image', url: result.overlay.image, coordinates: result.overlay.coordinates })
     map.addLayer({ id: AI_OVERLAY_ID, type: 'raster', source: AI_OVERLAY_ID, paint: { 'raster-opacity': 0.9, 'raster-fade-duration': 0 } })
+    if (result.fields?.features?.length) addFieldLayers(result.fields)
     const longitudes = result.overlay.coordinates.map((corner) => corner[0])
     const latitudes = result.overlay.coordinates.map((corner) => corner[1])
     map.fitBounds(

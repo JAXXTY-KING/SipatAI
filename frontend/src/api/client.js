@@ -106,6 +106,18 @@ export async function analyzeFloodArea({ latitude, longitude, date }) {
   return response.json()
 }
 
+export async function fetchSatelliteAssessments() {
+  const response = await request('/api/v1/model/assessments')
+  return response.json()
+}
+
+export async function downloadSatelliteAssessmentReport(assessmentId) {
+  const response = await request(`/api/v1/reports/satellite-assessment/${assessmentId}`, {
+    method: 'POST',
+  })
+  return response.blob()
+}
+
 export async function downloadAssessmentReport() {
   const response = await request('/api/v1/reports', {
     method: 'POST',

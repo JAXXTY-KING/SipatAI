@@ -133,3 +133,71 @@ def create_assessment_report(assessment: dict[str, Any]) -> BytesIO:
 def generate_latest_assessment_report() -> BytesIO:
     """Generate a PDF for the latest completed database assessment."""
     return create_assessment_report(get_latest_assessment_summary())
+
+
+def create_satellite_assessment_report(record: dict[str, Any]) -> BytesIO:
+    """Create a PDF from one saved MindSpore satellite assessment."""
+    output = BytesIO()
+    document = canvas.Canvas(output, pagesize=A4)
+    _, page_height = A4
+    statistics = record["statistics"]
+    cropland = record.get("cropland")
+    fields = record.get("field_summary")
+    observations = record["observations"]
+
+    document.setTitle("SipatAI Satellite Flood Assessment")
+    document.setFont("Helvetica-Bold", 16)
+    document.drawString(48, page_height - 60, "Satellite Flood Assessment")
+    document.setFont("Helvetica", 10)
+    document.drawString(48, page_height - 82, f"SipatAI | MindSpore ResNet-50 U-Net | Assessment {record['id']}")
+
+    rows = [
+        ("Location", f"{record['latitude']:.5f}, {record['longitude']:.5f} (5.12 km tile)"),
+        ("Event date requested", record.get("event_date") or "Most recent scenes"),
+        ("Sentinel-1 radar", f"{observations['sentinel_1']['datetime'][:10]}  {observations['sentinel_1']['id'][:42]}"),
+        ("Sentinel-2 optical", f"{observations['sentinel_2']['datetime'][:10]}  ({observations['sentinel_2']['cloud_cover_percent']}% cloud)"),
+        ("Flooded land", f"{statistics['flooded_area_km2']:,.2f} km2 of {statistics['tile_area_km2']:,.2f} km2 ({statistics['flooded_fraction'] * 100:.1f}%)"),
+    ]
+    if cropland:
+        rows.append(
+            (
+                "Flooded cropland",
+                f"{cropland['flooded_cropland_km2']:,.2f} km2 of {cropland['cropland_area_km2']:,.2f} km2 (ESA WorldCover 2021)",
+            )
+        )
+    if fields:
+        counts = fields["severity_counts"]
+        rows += [
+            ("Mapped fields analysed", f"{fields['fields_analysed']:,} ({fields['field_year']} Fields of The World)"),
+            ("Fields with flooding", f"{fields['fields_affected']:,}"),
+            ("Flooded field area", f"{fields['flooded_field_area_ha']:,.1f} ha of {fields['field_area_ha']:,.1f} ha"),
+            (
+                "Field classes",
+                f"Severe {counts['Severe']} | Moderate {counts['Moderate']} | Light {counts['Light']} | Unaffected {counts['Unaffected']}",
+            ),
+        ]
+    current_y = page_height - 124
+    for label, value in rows:
+        document.setFont("Helvetica-Bold", 10)
+        document.drawString(48, current_y, label)
+        document.setFont("Helvetica", 10)
+        document.drawString(190, current_y, value[:95])
+        current_y -= 22
+
+    notes = [
+        "Method: a MindSpore ResNet-50 U-Net trained on human-labelled Sen1Floods11 flood chips segments flooded pixels",
+        f"from Sentinel-1 radar and Sentinel-2 optical imagery (decision threshold {record.get('decision_threshold', 0.5)}).",
+        "Permanent water is removed using a dry-season Sentinel-1 reference.",
+        "Fields are remote-sensing field units from Fields of The World (CC-BY-4.0), not legal parcels.",
+        "Field classes (flooded share: Severe 60%+, Moderate 30-60%, Light 10-30%) are prototype display classes,",
+        "not an agronomic damage grade. Results are an estimate and not an official flood boundary or damage valuation.",
+    ]
+    current_y -= 12
+    document.setFont("Helvetica", 9)
+    for note in notes + [line for warning in record.get("warnings", []) for line in simpleSplit(f"Note: {warning}", "Helvetica", 9, 500)]:
+        document.drawString(48, current_y, note)
+        current_y -= 14
+    document.showPage()
+    document.save()
+    output.seek(0)
+    return output
