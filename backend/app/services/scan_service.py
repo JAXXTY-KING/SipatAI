@@ -8,6 +8,7 @@ import numpy as np
 from app.core.config import REPOSITORY_ROOT
 from app.db.scan_store import overlay_path, save_scan
 from app.services import flood_model_service as model_service
+from app.services.land_mask import land_mask
 from app.services.nationwide_grid import Tile
 
 if str(REPOSITORY_ROOT) not in sys.path:
@@ -68,7 +69,8 @@ def scan_tile(tile: Tile, window_days: int = 14, until: datetime | None = None) 
         scene = pc.read_scene(grid, radar_item, optical_item)
         probability = predictor.predict_probability(scene.features)
         permanent = _permanent_water(pc, tile, grid, bbox, radar_item["properties"]["datetime"])
-        probability = np.where(permanent, 0.0, probability).astype(np.float32)
+        land = land_mask(grid, bbox, probability.shape)
+        probability = np.where(permanent | ~land, 0.0, probability).astype(np.float32)
         threshold = model_service._decision_threshold(float(scene.optical_clear.mean()))
         flooded = probability >= threshold
         pixel_km2 = pc.PIXEL_SIZE_METRES**2 / 1_000_000

@@ -225,7 +225,10 @@ def analyze_area(longitude: float, latitude: float, requested_date: str | None) 
 
     probability = predictor.predict_probability(scene.features)
     permanent_water = _permanent_water_mask(pc, grid, bbox, radar_target)
-    probability = np.where(permanent_water, 0.0, probability).astype(np.float32)
+    from app.services.land_mask import land_mask
+
+    # Flooding is only reported on land inside the Philippine province boundaries, never over the open sea.
+    probability = np.where(permanent_water | ~land_mask(grid, bbox, probability.shape), 0.0, probability).astype(np.float32)
     threshold = _decision_threshold(float(scene.optical_clear.mean()))
     flooded = probability >= threshold
     try:
