@@ -100,18 +100,6 @@
 
     <SatelliteAssessments />
 
-    <section class="data-section assessment-status-panel" aria-labelledby="assessment-status-heading">
-      <div class="section-heading">
-        <div><p class="eyebrow">DATABASE ASSESSMENT</p><h2 id="assessment-status-heading">Completed agricultural assessment</h2></div>
-        <span class="service-state" :class="assessment ? 'service-state-configured' : 'service-state-not_configured'">
-          {{ assessment ? 'Completed assessment available' : 'Not available' }}
-        </span>
-      </div>
-      <p v-if="loading" class="connection-note" role="status">Checking the latest completed assessment…</p>
-      <p v-else-if="apiMessage" class="connection-note" role="status">{{ apiMessage }}</p>
-      <p v-else class="connection-note">Assessment data is available from the configured database. The forecast screening above remains separate from measured farm damage.</p>
-    </section>
-
     <template v-if="assessment">
     <section class="metric-grid" aria-label="Assessment summary">
       <article class="metric">
@@ -164,9 +152,7 @@ import NationwideScan from '../components/NationwideScan.vue'
 
 const assessment = ref(null)
 const screening = ref(null)
-const apiMessage = ref('')
 const screeningMessage = ref('')
-const loading = ref(true)
 const screeningLoading = ref(true)
 
 const formatArea = (value) => value == null ? 'Not available' : new Intl.NumberFormat('en-PH', { maximumFractionDigits: 1 }).format(value)
@@ -187,9 +173,8 @@ onMounted(() => {
       assessment.value = result
     })
     .catch(() => {
-      apiMessage.value = 'No completed agricultural assessment is available. GaussDB/PostGIS and a real, validated assessment are required; forecast screening is not a substitute.'
+      assessment.value = null
     })
-    .finally(() => { loading.value = false })
 
   void fetchFloodScreening()
     .then((result) => {

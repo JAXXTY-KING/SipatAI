@@ -1,7 +1,7 @@
 <template>
   <div class="page-view">
     <header class="page-heading">
-      <div><p class="eyebrow">DOCUMENTS</p><h1>Report center</h1><p class="page-description">Download a forecast-screening brief or a report from a completed database assessment.</p></div>
+      <div><p class="eyebrow">DOCUMENTS</p><h1>Report center</h1><p class="page-description">Download the forecast-screening brief, saved satellite assessments, or a completed database assessment when one exists.</p></div>
     </header>
 
     <p v-if="screeningLoading" class="connection-note" role="status">Checking forecast screening availability…</p>
@@ -25,28 +25,19 @@
 
     <SatelliteAssessments with-reports />
 
-    <section class="report-summary assessment-report-card">
-      <template v-if="loading">
-        <p class="connection-note" role="status">Checking for a completed database assessment…</p>
-      </template>
-      <template v-else-if="assessment">
-        <div class="section-heading"><div><p class="eyebrow">COMPLETED DATABASE ASSESSMENT</p><h2>{{ assessment.event_name }}</h2></div></div>
-        <dl class="report-fields">
-          <div><dt>Municipality</dt><dd>{{ assessment.municipality }}</dd></div>
-          <div><dt>Affected agricultural area</dt><dd>{{ assessment.total_affected_hectares.toLocaleString('en-PH') }} hectares</dd></div>
-          <div><dt>Estimated damage</dt><dd>{{ formatCurrency(assessment.estimated_damage_php) }}</dd></div>
-          <div><dt>Affected barangays</dt><dd>{{ assessment.affected_barangays }}</dd></div>
-        </dl>
-        <button class="button button-primary" type="button" :disabled="isGeneratingAssessment" @click="generateAssessmentReport">
-          {{ isGeneratingAssessment ? 'Generating…' : 'Download assessment PDF' }}
-        </button>
-        <p class="report-disclaimer">Damage valuation is shown only when configured for the assessment.</p>
-      </template>
-      <template v-else>
-        <div class="section-heading"><div><p class="eyebrow">DATABASE-BASED REPORT</p><h2>No completed agricultural assessment</h2></div></div>
-        <p class="connection-note">{{ assessmentMessage }}</p>
-        <p class="report-disclaimer">This is intentionally separate from the forecast screening brief. Do not treat rainfall-screening cells as farms, affected hectares, or crop losses.</p>
-      </template>
+    <section v-if="assessment" class="report-summary assessment-report-card">
+      <div class="section-heading"><div><p class="eyebrow">COMPLETED DATABASE ASSESSMENT</p><h2>{{ assessment.event_name }}</h2></div></div>
+      <dl class="report-fields">
+        <div><dt>Municipality</dt><dd>{{ assessment.municipality }}</dd></div>
+        <div><dt>Affected agricultural area</dt><dd>{{ assessment.total_affected_hectares.toLocaleString('en-PH') }} hectares</dd></div>
+        <div><dt>Estimated damage</dt><dd>{{ formatCurrency(assessment.estimated_damage_php) }}</dd></div>
+        <div><dt>Affected barangays</dt><dd>{{ assessment.affected_barangays }}</dd></div>
+      </dl>
+      <button class="button button-primary" type="button" :disabled="isGeneratingAssessment" @click="generateAssessmentReport">
+        {{ isGeneratingAssessment ? 'Generating…' : 'Download assessment PDF' }}
+      </button>
+      <p v-if="assessmentMessage" class="connection-note" role="alert">{{ assessmentMessage }}</p>
+      <p class="report-disclaimer">Damage valuation is shown only when configured for the assessment.</p>
     </section>
   </div>
 </template>
@@ -62,7 +53,6 @@ const isGeneratingAssessment = ref(false)
 const isGeneratingScreening = ref(false)
 const screeningMessage = ref('')
 const assessmentMessage = ref('')
-const loading = ref(true)
 const screeningLoading = ref(true)
 
 const formatCurrency = (value) => value == null ? 'Not calculated' : new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', maximumFractionDigits: 0 }).format(value)
@@ -72,9 +62,8 @@ onMounted(() => {
   void fetchDashboardSummary()
     .then((result) => { assessment.value = result })
     .catch(() => {
-      assessmentMessage.value = 'No completed assessment is available. Configure GaussDB/PostGIS and complete a real, validated assessment.'
+      assessment.value = null
     })
-    .finally(() => { loading.value = false })
 
   void fetchFloodScreening()
     .then((result) => { screening.value = result })
