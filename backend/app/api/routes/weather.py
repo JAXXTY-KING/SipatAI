@@ -15,6 +15,7 @@ from app.integrations.open_meteo_weather_client import (
     search_locations,
 )
 from app.integrations.province_forecast_client import get_province_forecast
+from app.services.susceptibility_service import province_outlook
 from app.integrations.flood_screening_client import (
     FloodScreeningError,
     get_nationwide_flood_screening,
@@ -113,9 +114,9 @@ async def read_flood_screening() -> dict[str, Any]:
 
 @router.get("/province-forecast")
 async def read_province_forecast() -> dict[str, Any]:
-    """Return the real forecast aggregated by province boundary (replaces coarse grid cells on the map)."""
+    """Return the real forecast by province, each with an automatic MindSpore-based flood outlook."""
     try:
-        return await get_province_forecast()
+        return await province_outlook()
     except FloodScreeningError as error:
         raise HTTPException(status_code=502, detail=str(error)) from error
 

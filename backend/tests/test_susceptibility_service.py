@@ -35,3 +35,19 @@ def test_susceptibility_api_rejects_bad_chunk_ids_and_serves_status(monkeypatch,
     assert client.get("/api/v1/model/susceptibility/chunk/..%2Fsecret.png").status_code == 404
     assert client.get("/api/v1/model/susceptibility/chunk/121E_14N.png").status_code == 404
     assert client.get("/api/v1/model/susceptibility/chunks?west=120&south=14&east=121&north=15").status_code == 503
+
+def test_province_outlook_adds_a_level_per_province(monkeypatch):
+    import asyncio
+
+    async def fake_forecast():
+        return {"fetched_at": "t", "features": [
+            {"type": "Feature", "geometry": None, "properties": {**_forecast(60.0), "name": "Wet"}},
+            {"type": "Feature", "geometry": None, "properties": {**_forecast(2.0), "name": "Dry"}},
+            {"type": "Feature", "geometry": None, "properties": {**_forecast(60.0), "name": "Unmapped"}},
+        ]}
+
+    monkeypatch.setattr(service, "get_province_forecast", fake_forecast)
+    monkeypatch.setattr(service, "_index", lambda: {})
+    monkeypatch.setattr(service, "province_terrain_shares", lambda: {"Wet": 0.5, "Dry": 0.5})
+    levels = {f["properties"]["name"]: f["properties"]["flood_level"] for f in asyncio.run(service.province_outlook())["features"]}
+    assert levels == {"Wet": "warning", "Dry": "none", "Unmapped": "unknown"}

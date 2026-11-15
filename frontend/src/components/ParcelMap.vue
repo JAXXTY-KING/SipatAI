@@ -36,30 +36,28 @@
           :disabled="isLoadingFloodScreening"
           @click="loadFloodScreening"
         >
-          {{ isLoadingFloodScreening ? 'Refreshing forecast…' : isRainfallScreeningActive ? 'Refresh rainfall screening' : 'Refresh weather forecast' }}
+          {{ isLoadingFloodScreening ? 'Refreshing forecast…' : isOutlookActive ? 'Refresh flood outlook' : isRainfallScreeningActive ? 'Refresh rainfall screening' : 'Refresh weather forecast' }}
         </button>
 
-        <details class="map-tools-group susceptibility-group" open>
-          <summary>
-            Flood-prone areas · prediction
-            <span class="ai-flood-badge" :class="susceptibilityStatus?.ready ? 'ai-flood-badge-ready' : 'ai-flood-badge-off'">
-              {{ susceptibilityStatus?.ready ? 'Model ready' : 'Not ready' }}
-            </span>
-          </summary>
+        <div class="flood-layer-toggles" role="group" aria-label="MindSpore flood layers">
+          <p class="map-tools-heading">MINDSPORE FLOOD LAYERS</p>
+          <label class="map-layer-toggle">
+            <input v-model="showProne" type="checkbox" :disabled="!susceptibilityStatus?.ready" @change="refreshProneOverlays">
+            <span class="prone-swatch"></span>
+            <span>Flood-prone terrain<small v-if="susceptibilityStatus?.heldout_auc"> · AUC {{ susceptibilityStatus.heldout_auc.toFixed(2) }} on unseen regions</small></span>
+          </label>
+          <label class="map-layer-toggle">
+            <input v-model="showScan" type="checkbox" @change="refreshScanOverlays">
+            <span class="scan-swatch"></span>
+            <span>Detected floods (satellite)<small v-if="scanSummary"> · {{ scanSummary.tiles_scanned.toLocaleString() }} of {{ scanSummary.tiles_total.toLocaleString() }} tiles scanned{{ scanSummary.flooded_km2 ? `, ${scanSummary.flooded_km2.toLocaleString()} km² flooded` : '' }}</small></span>
+          </label>
+          <small class="parcel-map-attribution">Unscanned areas are blank, not “no flood”. The automatic scan keeps adding tiles, wettest provinces first.</small>
+        </div>
+
+        <details class="map-tools-group susceptibility-group">
+          <summary>Check flood risk at a place</summary>
           <div class="map-tools-group-content">
-            <p class="parcel-map-attribution">
-              A MindSpore model learned, from real terrain (Copernicus DEM) and 36 years of Landsat water history, where floodwater collects.
-              It covers the whole Philippines. Pick a place on the map to see it combined with that province's real forecast.
-            </p>
             <p v-if="susceptibilityStatus && !susceptibilityStatus.ready" class="parcel-map-status" role="status">{{ susceptibilityStatus.reason }}</p>
-            <p v-else-if="susceptibilityStatus?.heldout_auc" class="parcel-map-status">
-              Tested on {{ susceptibilityStatus.heldout_regions }} regions the model never saw: AUC {{ susceptibilityStatus.heldout_auc.toFixed(2) }}
-            </p>
-            <label class="map-layer-toggle">
-              <input v-model="showProne" type="checkbox" :disabled="!susceptibilityStatus?.ready" @change="refreshProneOverlays">
-              <span class="prone-swatch"></span>
-              Show flood-prone areas (nationwide)
-            </label>
             <button
               class="parcel-refresh-button"
               type="button"
@@ -89,35 +87,10 @@
           </div>
         </details>
 
-        <details class="map-tools-group scan-group" open>
-          <summary>
-            Nationwide satellite scan
-            <span class="ai-flood-badge" :class="scanSummary?.tiles_scanned ? 'ai-flood-badge-ready' : 'ai-flood-badge-off'">
-              {{ scanSummary ? `${(scanSummary.coverage_fraction * 100).toFixed(1)}% scanned` : 'loading' }}
-            </span>
-          </summary>
-          <div class="map-tools-group-content">
-            <p v-if="scanSummary?.tiles_scanned" class="parcel-map-status" role="status">
-              {{ scanSummary.tiles_scanned.toLocaleString() }} of {{ scanSummary.tiles_total.toLocaleString() }} Philippine land tiles scanned by MindSpore ·
-              {{ scanSummary.flooded_km2.toLocaleString() }} km² of flood water detected in {{ scanSummary.tiles_with_flooding }} tiles ·
-              Sentinel-1 passes {{ scanSummary.radar_dates[0] }} to {{ scanSummary.radar_dates[1] }}
-            </p>
-            <p v-else class="parcel-map-status" role="status">No tiles scanned yet. Scans run from the backend job (see README).</p>
-            <label class="map-layer-toggle">
-              <input v-model="showScan" type="checkbox" @change="refreshScanOverlays">
-              <span class="scan-swatch"></span>
-              Show detected floods (scanned tiles)
-            </label>
-            <small class="parcel-map-attribution">
-              Newest real Sentinel-1 radar pass per tile. Areas not yet scanned are blank, not “no flood”.
-              Radar-only tiles (cloud cover) are less accurate.
-            </small>
-          </div>
-        </details>
 
-        <details class="map-tools-group ai-flood-group" open>
+        <details class="map-tools-group ai-flood-group">
           <summary>
-            MindSpore flood AI
+            Analyse flood extent (satellite)
             <span class="ai-flood-badge" :class="aiModelStatus?.ready ? 'ai-flood-badge-ready' : 'ai-flood-badge-off'">
               {{ aiModelStatus?.ready ? 'Model ready' : 'Not ready' }}
             </span>
@@ -277,6 +250,7 @@
         <span v-if="showRegions"><i class="region-legend-mark"></i> Administrative region · reference only</span>
         <span v-if="showParcels"><i class="parcel-legend-mark"></i> Imported farm parcel</span>
         <span v-if="showDamage && hasDamageFeatures"><i class="damage-legend-mark"></i> Completed flood assessment</span>
+        <span v-if="isOutlookActive"><i class="flood-screening-legend-mark"></i> Flood outlook by province: none (green) · advisory (yellow) · watch (orange) · warning (red)</span>
         <span v-if="isRainfallScreeningActive"><i class="flood-screening-legend-mark"></i> Rainfall screening by province: lower (green) · watch (amber) · elevated (red)</span>
         <span v-if="isSatelliteImageActive"><i class="satellite-image-legend-mark"></i> Live cloud-only Himawari-9 imagery</span>
         <span v-if="isWindForecastActive"><i class="wind-forecast-legend-mark"></i> Forecast wind direction and speed · Open-Meteo</span>
@@ -306,6 +280,7 @@ const props = defineProps({
 const emit = defineEmits(['location-selected'])
 const mapToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN
 const weatherLayers = [
+  { value: 'outlook', short: 'Flood outlook', icon: '🌊', label: 'Flood outlook · automatic', description: 'Automatic, by province: the MindSpore flood-prone terrain map combined with the real 72-hour rain forecast. Updates itself; no clicking needed.' },
   { value: 'rainfall', short: 'Rain watch', icon: '🌧', label: 'Rainfall screening', description: 'Wettest 24 hours in the next 72 h, by province. Screening only, not a flood prediction.' },
   { value: 'clouds', short: 'Clouds', icon: '☁', label: 'Clouds · live satellite', description: 'Live JMA Himawari-9 cloud imagery with playback.' },
   { value: 'wind', short: 'Wind', icon: '💨', label: 'Wind · 72-hour forecast', description: 'Animated wind speed and direction forecast.' },
@@ -341,7 +316,8 @@ const windForecastValidTime = computed(() => {
 const floodScreeningCollection = ref(null)
 const floodScreeningError = ref('')
 const isLoadingFloodScreening = ref(false)
-const selectedWeatherLayer = ref('rainfall')
+const selectedWeatherLayer = ref('outlook')
+const isOutlookActive = computed(() => selectedWeatherLayer.value === 'outlook')
 const isRainfallScreeningActive = computed(() => selectedWeatherLayer.value === 'rainfall')
 const isSatelliteImageActive = computed(() => selectedWeatherLayer.value === 'clouds')
 const isWindForecastActive = computed(() => selectedWeatherLayer.value === 'wind')
@@ -349,7 +325,7 @@ const isWeatherGridActive = computed(() => (
   ['precipitation', 'temperature', 'pressure'].includes(selectedWeatherLayer.value)
 ))
 const isGridWeatherMode = computed(() => (
-  isRainfallScreeningActive.value || isWeatherGridActive.value
+  isOutlookActive.value || isRainfallScreeningActive.value || isWeatherGridActive.value
 ))
 const floodScreeningStatus = computed(() => {
   if (isLoadingFloodScreening.value) return 'Loading the province forecast…'
@@ -361,6 +337,15 @@ const floodScreeningStatus = computed(() => {
     hour: '2-digit',
     minute: '2-digit',
   })
+  if (isOutlookActive.value) {
+    const atRisk = collection.features.filter((feature) => (
+      ['watch', 'warning'].includes(feature.properties?.flood_level)
+    )).length
+    const advisory = collection.features.filter((feature) => feature.properties?.flood_level === 'advisory').length
+    return atRisk || advisory
+      ? `${atRisk} province${atRisk === 1 ? '' : 's'} on flood watch or warning, ${advisory} advisory · updated ${updatedAt}`
+      : `No province at flood risk in the next 72 h (forecast rain is light) · updated ${updatedAt}`
+  }
   if (isRainfallScreeningActive.value) {
     const screeningAreas = collection.features.filter((feature) => (
       ['watch', 'elevated'].includes(feature.properties?.screening_level)
@@ -903,6 +888,33 @@ function setFloodScreeningDisplay() {
   const outlineLayer = 'flood-screening-outline'
   if (!map?.getLayer(fillLayer)) return
 
+  if (isOutlookActive.value) {
+    map.setFilter(fillLayer, null)
+    map.setFilter(outlineLayer, null)
+    map.setPaintProperty(fillLayer, 'fill-color', [
+      'match', ['get', 'flood_level'],
+      'warning', '#c83e3e',
+      'watch', '#ee8a2b',
+      'advisory', '#f0c93a',
+      '#5fa98a',
+    ])
+    map.setPaintProperty(fillLayer, 'fill-opacity', [
+      'match', ['get', 'flood_level'],
+      'warning', 0.62,
+      'watch', 0.58,
+      'advisory', 0.5,
+      0.14,
+    ])
+    map.setPaintProperty(outlineLayer, 'line-opacity', [
+      'match', ['get', 'flood_level'],
+      'warning', 0.8,
+      'watch', 0.75,
+      'advisory', 0.6,
+      0.25,
+    ])
+    return
+  }
+
   if (isRainfallScreeningActive.value) {
     // Show every cell so the layer is visibly active; only watch/elevated cells are emphasized.
     map.setFilter(fillLayer, null)
@@ -1005,7 +1017,15 @@ function addFloodScreeningLayer(collection) {
     heading.textContent = properties.name ?? 'Province'
     content.append(heading)
     const level = properties.screening_level === 'elevated' ? 'Elevated' : properties.screening_level === 'watch' ? 'Watch' : 'Lower'
-    const details = selectedWeatherLayer.value === 'temperature'
+    const levelNames = { none: 'No flood risk', advisory: 'Advisory', watch: 'Flood watch', warning: 'Flood warning' }
+    const details = selectedWeatherLayer.value === 'outlook'
+      ? [
+          ['Flood outlook', levelNames[properties.flood_level] ?? 'Not available'],
+          ['Wettest 24 h (next 72 h)', `${Number(properties.rainfall_24h_mm).toFixed(1)} mm`],
+          ['Flood-prone terrain', `${Math.round(Number(properties.terrain_share ?? 0) * 100)}% of province (MindSpore)`],
+          ['Why', properties.flood_message],
+        ]
+      : selectedWeatherLayer.value === 'temperature'
       ? [['Air temperature', `${Number(properties.temperature_2m_c).toFixed(1)} °C`]]
       : selectedWeatherLayer.value === 'precipitation'
         ? [['Rain, next 6 hours', `${Number(properties.precipitation_6h_mm).toFixed(1)} mm`]]
@@ -1023,7 +1043,7 @@ function addFloodScreeningLayer(collection) {
     }
     const note = document.createElement('small')
     note.textContent = `Open-Meteo model forecast, from ${properties.sample_points} point${Number(properties.sample_points) === 1 ? '' : 's'} in this province. `
-      + (selectedWeatherLayer.value === 'rainfall' ? 'Screening only, not a flood prediction or official warning.' : 'Not a station observation.')
+      + (['rainfall', 'outlook'].includes(selectedWeatherLayer.value) ? 'Screening only, not an official warning.' : 'Not a station observation.')
     content.append(note)
     new mapboxgl.Popup({ maxWidth: '18rem' })
       .setLngLat(event.lngLat)

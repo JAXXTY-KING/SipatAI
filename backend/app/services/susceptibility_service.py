@@ -146,3 +146,60 @@ async def assess_point(longitude: float, latitude: float) -> dict[str, Any]:
     local = local_susceptibility(longitude, latitude)
     forecast = await _forecast_for(longitude, latitude)
     return {"local": local, "forecast": forecast, "watch": flood_watch(local, forecast)}
+
+
+@lru_cache(maxsize=1)
+def province_terrain_shares() -> dict[str, float]:
+    """Share of each province's land (sampled at the 13,594 nationwide scan-grid points) rated high flood-prone.
+
+    Reads the precomputed MindSpore susceptibility map; the result is cached on disk next to it.
+    """
+    cache = NATIONAL_DIRECTORY / "province_shares.json"
+    if cache.is_file():
+        return json.loads(cache.read_text(encoding="utf-8"))
+    from app.services.nationwide_grid import land_tiles
+
+    by_chunk: dict[tuple[int, int], list[Any]] = {}
+    for tile in land_tiles():
+        by_chunk.setdefault((int(np.floor(tile.longitude)), int(np.floor(tile.latitude))), []).append(tile)
+    high: dict[str, int] = {}
+    total: dict[str, int] = {}
+    for (west, south), tiles in by_chunk.items():
+        path = NATIONAL_DIRECTORY / f"{west}E_{south}N.npy"
+        scores = np.load(path).astype(np.float32) / 255.0 if path.is_file() else None
+        for tile in tiles:
+            total[tile.province] = total.get(tile.province, 0) + 1
+            if scores is None:
+                continue
+            row = min(scores.shape[0] - 1, int((south + 1 - tile.latitude) / CELL_DEGREES))
+            column = min(scores.shape[1] - 1, int((tile.longitude - west) / CELL_DEGREES))
+            high[tile.province] = high.get(tile.province, 0) + int(scores[row, column] >= HIGH_SCORE)
+    shares = {name: high.get(name, 0) / count for name, count in total.items()}
+    cache.write_text(json.dumps(shares), encoding="utf-8")
+    return shares
+
+
+async def province_outlook() -> dict[str, Any]:
+    """The province forecast with an automatic MindSpore-based flood outlook added to every province."""
+    forecast = await get_province_forecast()
+    try:
+        _index()
+        shares = province_terrain_shares()
+    except SusceptibilityUnavailableError:
+        shares = {}
+    features = []
+    for feature in forecast["features"]:
+        properties = dict(feature["properties"])
+        share = shares.get(properties["name"])
+        if share is None:
+            properties.update(flood_level="unknown", flood_terrain="unknown", flood_message="Terrain model not available.", terrain_share=None)
+        else:
+            watch = flood_watch(_local_from_share(share), properties)
+            properties.update(flood_level=watch["level"], flood_terrain=watch["terrain"], flood_rain=watch["rain"],
+                              flood_message=watch["message"], terrain_share=round(share, 3))
+        features.append({**feature, "properties": properties})
+    return {**forecast, "features": features}
+
+
+def _local_from_share(share: float) -> dict[str, float]:
+    return {"point_score": 0.0, "radius_km": 0.0, "land_share_high": share, "land_share_moderate_or_high": share}

@@ -1,5 +1,9 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+from app.services import auto_scan
 
 from app.api.routes.damage_map import router as damage_map_router
 from app.api.routes.flood_model import router as flood_model_router
@@ -13,10 +17,18 @@ from app.api.routes.summary import router as summary_router
 from app.api.routes.weather import router as weather_router
 from app.core.config import get_allowed_origins
 
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    auto_scan.start()
+    yield
+    auto_scan.stop()
+
+
 app = FastAPI(
     title="SipatAI API",
     description="Agricultural flood assessment API backed by configured data and inference services.",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
