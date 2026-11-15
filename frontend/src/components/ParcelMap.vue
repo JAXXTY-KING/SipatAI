@@ -1175,10 +1175,10 @@ function pressureMeaning(hpa) {
 }
 
 const VERDICTS = {
-  warning: ['Flooding likely here', 'warning'],
-  watch: ['Flooding possible here', 'watch'],
-  advisory: ['Flooding possible nearby', 'advisory'],
-  none: ['No flood expected right now', 'none'],
+  warning: ['Strong model signal here', 'warning'],
+  watch: ['Model signal here', 'watch'],
+  advisory: ['Weak model signal nearby', 'advisory'],
+  none: ['No model signal here', 'none'],
 }
 
 function reportRow(parent, label, value) {
@@ -1202,12 +1202,14 @@ function fillPlaceReport(content, province, result, error) {
   content.replaceChildren()
   const title = document.createElement('strong')
   title.className = 'place-report-title'
-  title.textContent = province?.name ? `${province.name}` : 'Open sea or outside the Philippines'
+  title.textContent = province?.name ? `${province.name}` : 'Selected spot'
   content.append(title)
   if (!result) {
     const message = document.createElement('p')
     message.className = 'place-report-note'
-    message.textContent = error || 'There is no land here, so the flood models have nothing to say about this spot.'
+    message.textContent = province
+      ? (error || 'The flood models could not be reached.')
+      : `No Philippine province was found at this spot, so it may be open sea or outside the country. The flood models only cover Philippine land.${error ? ` (${error})` : ''}`
     content.append(message)
     return
   }
@@ -1221,10 +1223,8 @@ function fillPlaceReport(content, province, result, error) {
   why.className = 'place-report-note'
   const terrain = result.watch.terrain
   why.textContent = level === 'none'
-    ? (terrain === 'high' || terrain === 'moderate'
-      ? 'This land floods easily when heavy rain comes, but the rain expected over the last 3 and next day is not enough to flood it.'
-      : 'This land does not flood easily and no heavy rain is expected.')
-    : 'The MindSpore rain model expects water to collect in this area from the rain that has fallen and is forecast.'
+    ? 'Our experimental models show no flood signal for this spot under the current forecast. That is not a guarantee of safety: the models were not validated on Philippine floods and can miss real flooding.'
+    : 'Our experimental MindSpore rain model sees terrain and rain here that could let water collect. This is a model score, not a confirmed flood.'
   content.append(why)
 
   reportSection(content, 'Weather here')
@@ -1245,12 +1245,12 @@ function fillPlaceReport(content, province, result, error) {
   const flood = { high: 'High', moderate: 'Moderate', low: 'Low' }[terrain] ?? terrain
   reportRow(content, 'Flood-prone land', `${flood} · ${(result.local.land_share_high * 100).toFixed(0)}% of land within ${result.local.radius_km} km`)
   if (result.rain_model) {
-    reportRow(content, 'Rain-driven flood chance', `${Math.round(result.rain_model.probability_nearby * 100)}% within 1 km`)
+    reportRow(content, 'Rain model score (within 1 km)', `${Math.round(result.rain_model.probability_nearby * 100)} of 100 · not a probability`)
   }
 
   const note = document.createElement('small')
   note.className = 'place-report-note'
-  note.textContent = 'Research prototype from satellite data and AI models, not an official warning. Check PAGASA for advisories.'
+  note.textContent = 'Research prototype using satellite data and experimental AI models. It is not validated on Philippine floods, can miss real flooding, and is not an official warning. Check PAGASA for advisories.'
   content.append(note)
 }
 

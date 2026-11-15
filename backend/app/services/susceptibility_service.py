@@ -134,10 +134,10 @@ def flood_watch(local: dict[str, Any], forecast: dict[str, Any] | None) -> dict[
     score = {"light": 0, "moderate": 1, "heavy": 2, "extreme": 3}[rain] * {"low": 1, "moderate": 2, "high": 3}[terrain]
     level = "warning" if score >= 6 else "watch" if score >= 3 else "advisory" if score >= 2 else "none"
     messages = {
-        "none": "No flood expected from the current forecast here. Flood-prone areas are shown for planning.",
+        "none": "Our rule finds no heavy rain over flood-prone terrain in the current forecast. This is not a guarantee of safety. Flood-prone areas are shown for planning.",
         "advisory": "Some rain is forecast and parts of this area are flood-prone. Monitor local advisories.",
         "watch": "Heavy rain is forecast over flood-prone terrain. Low-lying areas could flood.",
-        "warning": "Very heavy rain is forecast over highly flood-prone terrain. Flooding is likely in the red areas.",
+        "warning": "Very heavy rain is forecast over highly flood-prone terrain. Flooding is possible in the red areas. Check PAGASA for advisories.",
     }
     return {"level": level, "terrain": terrain, "rain": rain, "message": messages[level]}
 
