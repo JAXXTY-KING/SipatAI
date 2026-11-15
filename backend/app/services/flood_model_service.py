@@ -144,13 +144,21 @@ def _decision_threshold(optical_clear_fraction: float | None = None) -> float:
 
 
 def _overlay_png(probability: np.ndarray, cropland: np.ndarray | None = None, threshold: float = FLOOD_THRESHOLD) -> str:
-    """Draw flooded pixels in blue, and flooded cropland in orange when land cover is known."""
+    """Draw flooded pixels in blue (orange on cropland) with softened edges.
+
+    Only the transparency is smoothed; the flooded/not-flooded decision at each pixel is unchanged.
+    """
+    from scipy.ndimage import gaussian_filter
+
     flooded = probability >= threshold
     rgba = np.zeros((*probability.shape, 4), dtype=np.uint8)
-    rgba[flooded, :3] = FLOOD_COLOUR
+    rgba[..., :3] = FLOOD_COLOUR
     if cropland is not None:
-        rgba[flooded & cropland, :3] = CROPLAND_FLOOD_COLOUR
-    rgba[flooded, 3] = np.clip(120 + probability[flooded] * 110, 0, 230).astype(np.uint8)
+        rgba[cropland, :3] = CROPLAND_FLOOD_COLOUR
+    strength = np.clip(0.55 + (probability - threshold) / max(1 - threshold, 1e-6) * 0.45, 0.55, 1.0)
+    soft = gaussian_filter(np.where(flooded, strength, 0.0), sigma=0.8)
+    alpha = np.where(flooded, np.maximum(soft, 0.55), soft * 0.9)
+    rgba[..., 3] = np.clip(alpha * 215, 0, 215).astype(np.uint8)
     buffer = io.BytesIO()
     Image.fromarray(rgba, mode="RGBA").save(buffer, format="PNG", optimize=True)
     return "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")

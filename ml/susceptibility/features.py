@@ -1,67 +1,80 @@
-"""Terrain and flood-history features for flood susceptibility, from public Planetary Computer data.
+"""Terrain and flood-history features for flood susceptibility.
 
-Real inputs only: Copernicus DEM GLO-30 elevation and JRC Global Surface Water occurrence
-(Landsat, 1984-2020). Tiles are 512 x 512 pixels at 30 m, about 15.4 km square.
+Real inputs only: Copernicus DEM GLO-90 elevation (3 arc-second cells, about 90 m) and JRC Global Surface Water
+occurrence (Landsat, 1984-2020). Files are downloaded once by ml.susceptibility.download.
 """
-import httpx
+import math
+from pathlib import Path
+
 import numpy as np
+import rasterio
 from rasterio.enums import Resampling
+from rasterio.merge import merge
 from scipy.ndimage import distance_transform_edt, minimum_filter
 
-from ml.configs.model_config import INPUT_SIZE
-from ml.data import planetary_computer as pc
-
-DEM = "cop-dem-glo-30"
-GSW = "jrc-gsw"
-PIXEL_METRES = 30.0
+CACHE = Path("ml/artifacts/susceptibility/cache")
+CELL_DEGREES = 3 / 3600
 FEATURE_NAMES = ("elevation", "relief_1km", "relief_3km", "slope", "distance_to_permanent_water")
 PERMANENT_WATER_OCCURRENCE = 80
 TEMPORARY_WATER_RANGE = (3, 60)  # JRC occurrence (%) of land that is water only part of the time
-MAX_DISTANCE_METRES = 15_000.0
+MAX_DISTANCE_METRES = 20_000.0
+MARGIN_DEGREES = 0.05  # context around a 1 degree chunk so filters have no edge artefacts
 
 
-def make_terrain_grid(longitude: float, latitude: float) -> pc.Grid:
-    return pc.make_grid(longitude, latitude, PIXEL_METRES)
+def cell_metres(latitude: float) -> tuple[float, float]:
+    """Cell height and width in metres at a latitude."""
+    return CELL_DEGREES * 110_574.0, CELL_DEGREES * 111_320.0 * math.cos(math.radians(latitude))
 
 
-def _items(collection: str, bbox) -> list[dict]:
-    body = {"collections": [collection], "bbox": list(bbox), "limit": 12}
-    response = httpx.post(pc.STAC_SEARCH_URL, json=body, timeout=45.0)
-    response.raise_for_status()
-    return response.json()["features"]
+def _merged(folder: str, bounds, nodata: float, fill: float) -> np.ndarray | None:
+    west, south, east, north = bounds
+    sources = []
+    for path in sorted((CACHE / folder).glob("*.tif")):
+        dataset = rasterio.open(path)
+        left, bottom, right, top = dataset.bounds
+        if left < east and right > west and bottom < north and top > south:
+            sources.append(dataset)
+        else:
+            dataset.close()
+    if not sources:
+        return None
+    try:
+        array, _ = merge(sources, bounds=bounds, res=CELL_DEGREES, nodata=nodata, resampling=Resampling.nearest)
+    finally:
+        for dataset in sources:
+            dataset.close()
+    return np.where(array[0] == nodata, fill, array[0]).astype(np.float32)
 
 
-def read_elevation(grid: pc.Grid) -> np.ndarray:
-    """Elevation in metres on the grid (sea is 0). DEM tiles are 1 degree, so neighbours are merged."""
-    elevation = np.full(INPUT_SIZE, np.nan, dtype=np.float32)
-    for item in _items(DEM, pc.grid_bbox(grid)):
-        band = pc._read_band(DEM, item["assets"]["data"]["href"], grid, Resampling.bilinear)
-        elevation = np.where(np.isfinite(band), band, elevation)
-    if not np.isfinite(elevation).mean() > 0.9:
-        raise pc.SceneUnavailableError("Elevation data does not cover this area.")
-    return np.nan_to_num(elevation, nan=0.0)
+def read_chunk(longitude: float, latitude: float) -> tuple[np.ndarray, np.ndarray] | None:
+    """Elevation (m, sea = 0) and water occurrence (0-100, NaN where Landsat saw nothing) for one degree square plus margin."""
+    bounds = (
+        longitude - MARGIN_DEGREES, latitude - MARGIN_DEGREES,
+        longitude + 1 + MARGIN_DEGREES, latitude + 1 + MARGIN_DEGREES,
+    )
+    elevation = _merged("dem", bounds, nodata=-32767.0, fill=0.0)
+    if elevation is None:
+        return None
+    occurrence = _merged("gsw", bounds, nodata=255.0, fill=np.nan)
+    if occurrence is None:
+        occurrence = np.full(elevation.shape, np.nan, dtype=np.float32)
+    rows = min(elevation.shape[0], occurrence.shape[0])
+    columns = min(elevation.shape[1], occurrence.shape[1])
+    return elevation[:rows, :columns], occurrence[:rows, :columns]
 
 
-def read_water_occurrence(grid: pc.Grid) -> np.ndarray:
-    """JRC share of valid observations (0-100) in which each pixel was water; NaN where unobserved."""
-    occurrence = np.full(INPUT_SIZE, np.nan, dtype=np.float32)
-    for item in _items(GSW, pc.grid_bbox(grid)):
-        band = pc._read_band(GSW, item["assets"]["occurrence"]["href"], grid, Resampling.nearest, nodata=255)
-        occurrence = np.where(np.isfinite(band), band, occurrence)
-    return occurrence
-
-
-def build_features(elevation: np.ndarray, occurrence: np.ndarray) -> np.ndarray:
+def build_features(elevation: np.ndarray, occurrence: np.ndarray, latitude: float = 10.0) -> np.ndarray:
     """Five terrain channels scaled to about 0-1: elevation, local relief at two radii, slope, water distance."""
-    slope_y, slope_x = np.gradient(elevation, PIXEL_METRES)
+    cell_y, cell_x = cell_metres(latitude)
+    slope_y, slope_x = np.gradient(elevation, cell_y, cell_x)
     slope = np.degrees(np.arctan(np.hypot(slope_x, slope_y)))
-    relief_1km = elevation - minimum_filter(elevation, size=33, mode="nearest")
-    relief_3km = elevation - minimum_filter(elevation, size=101, mode="nearest")
+    relief_1km = elevation - minimum_filter(elevation, size=13, mode="nearest")
+    relief_3km = elevation - minimum_filter(elevation, size=37, mode="nearest")
     permanent = np.nan_to_num(occurrence, nan=0.0) >= PERMANENT_WATER_OCCURRENCE
     if permanent.any():
-        distance = np.minimum(distance_transform_edt(~permanent) * PIXEL_METRES, MAX_DISTANCE_METRES)
+        distance = np.minimum(distance_transform_edt(~permanent, sampling=(cell_y, cell_x)), MAX_DISTANCE_METRES)
     else:
-        distance = np.full(INPUT_SIZE, MAX_DISTANCE_METRES)
+        distance = np.full(elevation.shape, MAX_DISTANCE_METRES)
     return np.stack(
         (
             np.log1p(np.clip(elevation, 0, 3000)) / np.log1p(3000),

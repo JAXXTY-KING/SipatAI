@@ -1,104 +1,107 @@
-import base64
-import io
-import os
-import sys
+import json
 import threading
-from collections import OrderedDict
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 import numpy as np
-from PIL import Image
 from shapely.geometry import Point
 
 from app.core.config import REPOSITORY_ROOT
 from app.integrations.province_forecast_client import _provinces, get_province_forecast
 
-if str(REPOSITORY_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPOSITORY_ROOT))
-
-MODERATE_SCORE = 0.5
-HIGH_SCORE = 0.75
-CACHE_SIZE = 12
-PIXEL_KM2 = 0.03 * 0.03
-
-_network = None
-_network_lock = threading.Lock()
-_cache: OrderedDict[tuple, dict[str, Any]] = OrderedDict()
-_cache_lock = threading.Lock()
+SUSCEPTIBILITY_DIRECTORY = REPOSITORY_ROOT / "ml" / "artifacts" / "susceptibility"
+NATIONAL_DIRECTORY = SUSCEPTIBILITY_DIRECTORY / "national"
+MODERATE_SCORE, HIGH_SCORE = 0.5, 0.75
+LOCAL_RADIUS_KM = 5.0
+CELL_DEGREES = 3 / 3600
+# Same rainfall bands as the existing screening layer (mm in the wettest 24 h of the next 72 h).
+RAIN_BANDS = ((100.0, "extreme"), (50.0, "heavy"), (25.0, "moderate"))
+_lock = threading.Lock()
 
 
 class SusceptibilityUnavailableError(RuntimeError):
-    """Raised when the trained susceptibility model or its terrain data cannot be used."""
+    """Raised when the nationwide susceptibility map has not been built."""
 
 
-def _checkpoint() -> Path:
-    configured = os.getenv("SIPATAI_SUSCEPTIBILITY_CHECKPOINT", "").strip()
-    return Path(configured) if configured else REPOSITORY_ROOT / "ml" / "artifacts" / "susceptibility" / "susceptibility.ckpt"
+def _index() -> list[dict[str, Any]]:
+    path = NATIONAL_DIRECTORY / "index.json"
+    if not path.is_file():
+        raise SusceptibilityUnavailableError("The nationwide flood-prone map has not been built yet (see ml/README.md).")
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def get_susceptibility_status() -> dict[str, Any]:
-    checkpoint = _checkpoint()
-    card_path = checkpoint.with_name("model_card.json")
-    status: dict[str, Any] = {"framework": "MindSpore", "ready": checkpoint.is_file()}
+    card_path = SUSCEPTIBILITY_DIRECTORY / "model_card.json"
+    status: dict[str, Any] = {"framework": "MindSpore", "ready": False}
+    try:
+        index = _index()
+    except SusceptibilityUnavailableError as error:
+        status["reason"] = str(error)
+        return status
+    status.update(
+        ready=True,
+        chunks=len(index),
+        land_km2=round(sum(chunk["land_km2"] for chunk in index)),
+        high_km2=round(sum(chunk["high_km2"] for chunk in index)),
+    )
     if card_path.is_file():
-        import json
-
         card = json.loads(card_path.read_text(encoding="utf-8"))
         status.update(
             label=card.get("label"),
             inputs=card.get("inputs"),
-            heldout_province_auc=card.get("final", {}).get("heldout_province_auc"),
-            observed_flood_validation=card.get("observed_flood_validation"),
+            heldout_auc=card.get("final", {}).get("heldout_province_auc"),
+            heldout_regions=len(card.get("heldout_provinces", [])),
         )
-    if not checkpoint.is_file():
-        status["reason"] = "The susceptibility model has not been trained yet (see ml/README.md)."
     return status
 
 
-def _load_network():
-    global _network
-    with _network_lock:
-        if _network is None:
-            checkpoint = _checkpoint()
-            if not checkpoint.is_file():
-                raise SusceptibilityUnavailableError("The susceptibility model has not been trained yet.")
-            try:
-                from ml.susceptibility.model import load_susceptibility_net
-            except ImportError as error:
-                raise SusceptibilityUnavailableError("MindSpore is not installed in the backend environment.") from error
-            _network = load_susceptibility_net(checkpoint)
-    return _network
+def chunks_in_bbox(west: float, south: float, east: float, north: float) -> list[dict[str, Any]]:
+    return [
+        chunk for chunk in _index()
+        if chunk["east"] > west and chunk["west"] < east and chunk["north"] > south and chunk["south"] < north
+        and chunk["high_km2"] + chunk["moderate_km2"] > 0
+    ]
 
 
-def _score_map(features: np.ndarray) -> np.ndarray:
-    import mindspore as ms
-    from mindspore import Tensor
-
-    network = _load_network()
-    flat = np.ascontiguousarray(features.reshape(features.shape[0], -1).T)
-    with _network_lock:
-        logits = np.concatenate(
-            [network(Tensor(flat[i : i + 65536], ms.float32)).asnumpy()[:, 0] for i in range(0, len(flat), 65536)]
-        )
-    return (1.0 / (1.0 + np.exp(-logits))).reshape(features.shape[1:]).astype(np.float32)
+def chunk_png(chunk_id: str) -> Path:
+    if not all(character.isalnum() or character in "_-" for character in chunk_id):
+        raise SusceptibilityUnavailableError("Unknown chunk.")
+    path = NATIONAL_DIRECTORY / f"{chunk_id}.png"
+    if not path.is_file():
+        raise SusceptibilityUnavailableError("No overlay for this chunk.")
+    return path
 
 
-def _overlay_png(score: np.ndarray) -> str:
-    rgba = np.zeros((*score.shape, 4), dtype=np.uint8)
-    moderate = (score >= MODERATE_SCORE) & (score < HIGH_SCORE)
-    high = score >= HIGH_SCORE
-    rgba[moderate] = (251, 191, 36, 120)
-    rgba[high] = (220, 38, 38, 170)
-    buffer = io.BytesIO()
-    Image.fromarray(rgba, mode="RGBA").save(buffer, format="PNG", optimize=True)
-    return "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
+@lru_cache(maxsize=24)
+def _scores(chunk_id: str) -> np.ndarray:
+    return np.load(NATIONAL_DIRECTORY / f"{chunk_id}.npy")
+
+
+def local_susceptibility(longitude: float, latitude: float) -> dict[str, Any]:
+    """Susceptibility at a point and across the surrounding 5 km, from the precomputed national map."""
+    west, south = int(np.floor(longitude)), int(np.floor(latitude))
+    chunk_id = f"{west}E_{south}N"
+    if not (NATIONAL_DIRECTORY / f"{chunk_id}.npy").is_file():
+        raise SusceptibilityUnavailableError("No flood-prone data covers this point (open sea or outside the Philippines).")
+    scores = _scores(chunk_id).astype(np.float32) / 255.0
+    size = scores.shape[0]
+    row = min(size - 1, int((south + 1 - latitude) / CELL_DEGREES))
+    column = min(size - 1, int((longitude - west) / CELL_DEGREES))
+    radius = int(LOCAL_RADIUS_KM / (CELL_DEGREES * 111.32))
+    window = scores[max(0, row - radius) : row + radius + 1, max(0, column - radius) : column + radius + 1]
+    land = window > 0
+    return {
+        "point_score": round(float(scores[row, column]), 3),
+        "radius_km": LOCAL_RADIUS_KM,
+        "land_share_high": round(float((window >= HIGH_SCORE).sum() / max(land.sum(), 1)), 3),
+        "land_share_moderate_or_high": round(float((window >= MODERATE_SCORE).sum() / max(land.sum(), 1)), 3),
+    }
 
 
 async def _forecast_for(longitude: float, latitude: float) -> dict[str, Any] | None:
-    """The real Open-Meteo forecast for the province containing the point, if it is available."""
     try:
-        features, geometries = _provinces()
+        _, geometries = _provinces()
         forecast = await get_province_forecast()
     except Exception:
         return None
@@ -106,78 +109,40 @@ async def _forecast_for(longitude: float, latitude: float) -> dict[str, Any] | N
     for index, geometry in enumerate(geometries):
         if geometry.covers(point):
             properties = forecast["features"][index]["properties"]
-            return {
-                "province": properties["name"],
-                "rainfall_24h_mm": properties["rainfall_24h_mm"],
-                "rainfall_72h_mm": properties["rainfall_72h_mm"],
-                "screening_level": properties["screening_level"],
-                "forecast_start": properties["forecast_start"],
-            }
+            return {key: properties[key] for key in (
+                "name", "rainfall_24h_mm", "rainfall_72h_mm", "precipitation_6h_mm",
+                "temperature_2m_c", "pressure_msl_hpa", "forecast_start", "sample_points",
+            )}
     return None
 
 
-def _outlook(forecast: dict[str, Any] | None, high_km2: float) -> str:
+def _rain_band(rainfall_24h_mm: float) -> str:
+    for minimum, label in RAIN_BANDS:
+        if rainfall_24h_mm >= minimum:
+            return label
+    return "light"
+
+
+def flood_watch(local: dict[str, Any], forecast: dict[str, Any] | None) -> dict[str, str]:
+    """Combine local flood-proneness with the forecast rain. The rain-to-flood link is a documented rule, not learned."""
+    share = local["land_share_high"]
+    terrain = "high" if share >= 0.2 else "moderate" if share >= 0.05 else "low"
     if forecast is None:
-        return "Rainfall forecast unavailable; showing where water tends to collect, not a forecast."
-    level = forecast["screening_level"]
-    if level == "elevated":
-        return "Heavy rain is forecast for this province: the red and amber areas are where floodwater is most likely to collect."
-    if level == "watch":
-        return "Significant rain is forecast: the red and amber areas are the most likely to flood if the rain falls here."
-    return "No heavy rain is forecast for this province in the next 72 h. Red and amber areas are flood-prone terrain, not a flood warning."
-
-
-def susceptibility_for_tile(longitude: float, latitude: float) -> dict[str, Any]:
-    from ml.data import planetary_computer as pc
-    from ml.susceptibility import features as terrain
-
-    grid = terrain.make_terrain_grid(longitude, latitude)
-    key = (grid.crs, grid.transform.c, grid.transform.f)
-    with _cache_lock:
-        if key in _cache:
-            _cache.move_to_end(key)
-            return _cache[key]
-    try:
-        elevation = terrain.read_elevation(grid)
-        occurrence = terrain.read_water_occurrence(grid)
-    except pc.SceneUnavailableError as error:
-        raise SusceptibilityUnavailableError(str(error)) from error
-    except Exception as error:
-        raise SusceptibilityUnavailableError("Terrain data could not be retrieved right now.") from error
-
-    score = _score_map(terrain.build_features(elevation, occurrence))
-    land_only = (elevation > 0.5) & (np.nan_to_num(occurrence, nan=0.0) < terrain.PERMANENT_WATER_OCCURRENCE)
-    score = np.where(land_only, score, 0.0).astype(np.float32)
-    high, moderate = score >= HIGH_SCORE, (score >= MODERATE_SCORE) & (score < HIGH_SCORE)
-    land_km2 = float(land_only.sum()) * PIXEL_KM2
-    result = {
-        "model": {"framework": "MindSpore", "name": "SusceptibilityNet"},
-        "overlay": {
-            "image": _overlay_png(score),
-            "coordinates": [[float(x), float(y)] for x, y in grid.corners],
-        },
-        "statistics": {
-            "tile_km2": round(score.size * PIXEL_KM2, 1),
-            "land_km2": round(land_km2, 1),
-            "high_km2": round(float(high.sum()) * PIXEL_KM2, 2),
-            "moderate_km2": round(float(moderate.sum()) * PIXEL_KM2, 2),
-            "high_share_of_land": round(float(high.sum()) * PIXEL_KM2 / land_km2, 4) if land_km2 else None,
-        },
-        "thresholds": {"moderate": MODERATE_SCORE, "high": HIGH_SCORE},
-        "data": "Copernicus DEM GLO-30 (30 m) and JRC Global Surface Water 1984-2020 (Landsat)",
+        return {"level": "unknown", "terrain": terrain, "rain": "unavailable",
+                "message": "Rainfall forecast unavailable. Showing flood-prone terrain only."}
+    rain = _rain_band(forecast["rainfall_24h_mm"])
+    score = {"light": 0, "moderate": 1, "heavy": 2, "extreme": 3}[rain] * {"low": 1, "moderate": 2, "high": 3}[terrain]
+    level = "warning" if score >= 6 else "watch" if score >= 3 else "advisory" if score >= 2 else "none"
+    messages = {
+        "none": "No flood expected from the current forecast here. Flood-prone areas are shown for planning.",
+        "advisory": "Some rain is forecast and parts of this area are flood-prone. Monitor local advisories.",
+        "watch": "Heavy rain is forecast over flood-prone terrain. Low-lying areas could flood.",
+        "warning": "Very heavy rain is forecast over highly flood-prone terrain. Flooding is likely in the red areas.",
     }
-    with _cache_lock:
-        _cache[key] = result
-        while len(_cache) > CACHE_SIZE:
-            _cache.popitem(last=False)
-    return result
+    return {"level": level, "terrain": terrain, "rain": rain, "message": messages[level]}
 
 
-async def predict_flood_prone_areas(longitude: float, latitude: float) -> dict[str, Any]:
-    from fastapi.concurrency import run_in_threadpool
-
-    result = dict(await run_in_threadpool(susceptibility_for_tile, longitude, latitude))
+async def assess_point(longitude: float, latitude: float) -> dict[str, Any]:
+    local = local_susceptibility(longitude, latitude)
     forecast = await _forecast_for(longitude, latitude)
-    result["forecast"] = forecast
-    result["outlook"] = _outlook(forecast, result["statistics"]["high_km2"])
-    return result
+    return {"local": local, "forecast": forecast, "watch": flood_watch(local, forecast)}

@@ -48,33 +48,43 @@
           </summary>
           <div class="map-tools-group-content">
             <p class="parcel-map-attribution">
-              A MindSpore model learned where water collects from real terrain (Copernicus DEM) and 36 years of Landsat water history,
-              so it works anywhere in the Philippines. Combined with the real rainfall forecast for the province.
+              A MindSpore model learned, from real terrain (Copernicus DEM) and 36 years of Landsat water history, where floodwater collects.
+              It covers the whole Philippines. Pick a place on the map to see it combined with that province's real forecast.
             </p>
             <p v-if="susceptibilityStatus && !susceptibilityStatus.ready" class="parcel-map-status" role="status">{{ susceptibilityStatus.reason }}</p>
-            <p v-else-if="susceptibilityStatus?.heldout_province_auc" class="parcel-map-status">
-              Held-out provinces: AUC {{ susceptibilityStatus.heldout_province_auc.toFixed(2) }}
-              <template v-if="susceptibilityStatus.observed_flood_validation"> · vs satellite-observed floods: AUC {{ susceptibilityStatus.observed_flood_validation.auc.toFixed(2) }}</template>
+            <p v-else-if="susceptibilityStatus?.heldout_auc" class="parcel-map-status">
+              Tested on {{ susceptibilityStatus.heldout_regions }} regions the model never saw: AUC {{ susceptibilityStatus.heldout_auc.toFixed(2) }}
             </p>
+            <label class="map-layer-toggle">
+              <input v-model="showProne" type="checkbox" :disabled="!susceptibilityStatus?.ready" @change="refreshProneOverlays">
+              <span class="prone-swatch"></span>
+              Show flood-prone areas (nationwide)
+            </label>
             <button
               class="parcel-refresh-button"
               type="button"
               :disabled="isPredicting || !susceptibilityStatus?.ready"
               @click="runSusceptibility"
             >
-              {{ isPredicting ? 'Reading terrain & running MindSpore…' : 'Show flood-prone areas here' }}
+              {{ isPredicting ? 'Checking…' : 'Check flood risk at the selected place' }}
             </button>
             <p v-if="susceptibilityError" class="parcel-map-status ai-flood-error" role="alert">{{ susceptibilityError }}</p>
-            <div v-if="susceptibilityResult" class="ai-flood-result susceptibility-result" role="status">
-              <strong>{{ susceptibilityResult.statistics.high_km2 }} km² high · {{ susceptibilityResult.statistics.moderate_km2 }} km² moderate susceptibility</strong>
-              <span>of {{ susceptibilityResult.statistics.land_km2 }} km² land in this {{ susceptibilityResult.statistics.tile_km2 }} km² area</span>
-              <span v-if="susceptibilityResult.forecast">
-                Forecast for {{ susceptibilityResult.forecast.province }}: {{ susceptibilityResult.forecast.rainfall_24h_mm }} mm in the wettest 24 h,
-                {{ susceptibilityResult.forecast.rainfall_72h_mm }} mm over 72 h
+            <div v-if="susceptibilityResult" class="ai-flood-result susceptibility-result" :class="`watch-${susceptibilityResult.watch.level}`" role="status">
+              <strong>Flood {{ susceptibilityResult.watch.level === 'none' ? 'outlook: no warning' : susceptibilityResult.watch.level }}</strong>
+              <span>{{ susceptibilityResult.watch.message }}</span>
+              <span>
+                Terrain within {{ susceptibilityResult.local.radius_km }} km: {{ susceptibilityResult.watch.terrain }} flood-proneness
+                ({{ (susceptibilityResult.local.land_share_high * 100).toFixed(0) }}% high)
               </span>
-              <small><b>{{ susceptibilityResult.outlook }}</b></small>
-              <small>Red = high, amber = moderate susceptibility. A relative score from terrain and water history, not a flood warning or a measured depth.</small>
-              <button class="parcel-refresh-button" type="button" @click="clearSusceptibility">Clear overlay</button>
+              <template v-if="susceptibilityResult.forecast">
+                <small>
+                  {{ susceptibilityResult.forecast.name }} forecast · rain {{ susceptibilityResult.forecast.precipitation_6h_mm }} mm next 6 h ·
+                  {{ susceptibilityResult.forecast.rainfall_24h_mm }} mm wettest 24 h · {{ susceptibilityResult.forecast.rainfall_72h_mm }} mm over 72 h ·
+                  {{ susceptibilityResult.forecast.temperature_2m_c }} °C · {{ susceptibilityResult.forecast.pressure_msl_hpa }} hPa
+                </small>
+              </template>
+              <small>The terrain part is a trained MindSpore model. Linking forecast rain to flood level is a stated rule (rain band × terrain), not a learned or official forecast.</small>
+              <button class="parcel-refresh-button" type="button" @click="clearSusceptibility">Clear</button>
             </div>
           </div>
         </details>
@@ -287,7 +297,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import mapboxgl from 'mapbox-gl'
-import { analyzeFloodArea, fetchDamageMap, fetchFloodModelStatus, fetchHimawariTileFrames, fetchParcelMap, fetchProvinceForecast, fetchScanOverlays, fetchScanSummary, fetchSusceptibilityStatus, fetchWindForecast, himawariTileTemplate, predictFloodProneAreas, scanOverlayUrl } from '../api/client'
+import { analyzeFloodArea, fetchDamageMap, fetchFloodModelStatus, fetchHimawariTileFrames, fetchParcelMap, fetchProvinceForecast, fetchScanOverlays, fetchScanSummary, fetchSusceptibilityChunks, fetchSusceptibilityStatus, fetchWindForecast, himawariTileTemplate, predictFloodProneAreas, scanOverlayUrl, susceptibilityChunkUrl } from '../api/client'
 import { severityColors } from '../map/severity'
 
 const props = defineProps({
@@ -393,10 +403,55 @@ const susceptibilityStatus = ref(null)
 const susceptibilityResult = ref(null)
 const susceptibilityError = ref('')
 const isPredicting = ref(false)
+const showProne = ref(true)
+const proneChunkIds = new Set()
+let proneRefreshTimer
+let proneRequestSequence = 0
+
+function removeProneChunk(chunkId) {
+  const layerId = `prone-${chunkId}`
+  if (map?.getLayer(layerId)) map.removeLayer(layerId)
+  if (map?.getSource(layerId)) map.removeSource(layerId)
+  proneChunkIds.delete(chunkId)
+}
+
+async function refreshProneOverlays() {
+  if (!map) return
+  const currentRequest = ++proneRequestSequence
+  if (!showProne.value || !susceptibilityStatus.value?.ready) {
+    for (const chunkId of [...proneChunkIds]) removeProneChunk(chunkId)
+    return
+  }
+  try {
+    const { chunks } = await fetchSusceptibilityChunks(map.getBounds())
+    if (currentRequest !== proneRequestSequence || !map) return
+    const wanted = new Set(chunks.map((chunk) => chunk.id))
+    for (const chunkId of [...proneChunkIds]) if (!wanted.has(chunkId)) removeProneChunk(chunkId)
+    for (const chunk of chunks) {
+      if (proneChunkIds.has(chunk.id)) continue
+      const layerId = `prone-${chunk.id}`
+      map.addSource(layerId, {
+        type: 'image',
+        url: susceptibilityChunkUrl(chunk.id),
+        coordinates: [[chunk.west, chunk.north], [chunk.east, chunk.north], [chunk.east, chunk.south], [chunk.west, chunk.south]],
+      })
+      map.addLayer(
+        { id: layerId, type: 'raster', source: layerId, paint: { 'raster-opacity': 0.95, 'raster-resampling': 'linear', 'raster-fade-duration': 0 } },
+        map.getLayer(AI_OVERLAY_LAYER) ? AI_OVERLAY_LAYER : undefined,
+      )
+      proneChunkIds.add(chunk.id)
+    }
+  } catch {
+    // The prediction layer is optional; the rest of the map keeps working.
+  }
+}
+
+function scheduleProneRefresh() {
+  window.clearTimeout(proneRefreshTimer)
+  proneRefreshTimer = window.setTimeout(() => void refreshProneOverlays(), 450)
+}
 
 function clearSusceptibility() {
-  if (map?.getLayer(SUSCEPTIBILITY_ID)) map.removeLayer(SUSCEPTIBILITY_ID)
-  if (map?.getSource(SUSCEPTIBILITY_ID)) map.removeSource(SUSCEPTIBILITY_ID)
   susceptibilityResult.value = null
 }
 
@@ -406,6 +461,7 @@ async function loadSusceptibilityStatus() {
   } catch (error) {
     susceptibilityStatus.value = { ready: false, reason: error instanceof Error ? error.message : 'Status unavailable.' }
   }
+  void refreshProneOverlays()
 }
 
 async function runSusceptibility() {
@@ -414,29 +470,20 @@ async function runSusceptibility() {
   isPredicting.value = true
   susceptibilityError.value = ''
   try {
-    const result = await predictFloodProneAreas({
+    susceptibilityResult.value = await predictFloodProneAreas({
       latitude: Number(target.lat.toFixed(6)),
       longitude: Number(target.lng.toFixed(6)),
     })
-    if (!map) return
-    clearSusceptibility()
-    map.addSource(SUSCEPTIBILITY_ID, { type: 'image', url: result.overlay.image, coordinates: result.overlay.coordinates })
-    map.addLayer({ id: SUSCEPTIBILITY_ID, type: 'raster', source: SUSCEPTIBILITY_ID, paint: { 'raster-opacity': 0.9, 'raster-fade-duration': 0 } })
-    const longitudes = result.overlay.coordinates.map((corner) => corner[0])
-    const latitudes = result.overlay.coordinates.map((corner) => corner[1])
-    map.fitBounds(
-      [[Math.min(...longitudes), Math.min(...latitudes)], [Math.max(...longitudes), Math.max(...latitudes)]],
-      { padding: 40, duration: 1200 },
-    )
-    susceptibilityResult.value = result
   } catch (error) {
-    susceptibilityError.value = error instanceof Error ? error.message : 'Prediction failed.'
+    susceptibilityResult.value = null
+    susceptibilityError.value = error instanceof Error ? error.message : 'Assessment failed.'
   } finally {
     isPredicting.value = false
   }
 }
 
 const AI_OVERLAY_ID = 'ai-flood-overlay'
+const AI_OVERLAY_LAYER = AI_OVERLAY_ID
 const scanSummary = ref(null)
 const showScan = ref(true)
 const scanTileIds = new Set()
@@ -1291,6 +1338,7 @@ function initializeMapLayers(styleReady = false) {
     }, 1600)
     map.on('moveend', scheduleParcelRefresh)
     map.on('moveend', scheduleScanRefresh)
+    map.on('moveend', scheduleProneRefresh)
     void loadScanSummary()
     void refreshScanOverlays()
     void loadParcels()
@@ -1360,6 +1408,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.clearTimeout(moveTimer)
   window.clearTimeout(scanRefreshTimer)
+  window.clearTimeout(proneRefreshTimer)
   window.clearTimeout(mapStartupTimer)
   window.clearInterval(satelliteRefreshTimer)
   window.clearInterval(windForecastTimer)

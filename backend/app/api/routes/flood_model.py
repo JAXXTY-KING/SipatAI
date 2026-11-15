@@ -3,11 +3,16 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from fastapi.concurrency import run_in_threadpool
 
+from fastapi import Query
+from fastapi.responses import FileResponse
+
 from app.db.assessment_store import AssessmentRecordNotFound, get_assessment, list_assessments
 from app.services.susceptibility_service import (
     SusceptibilityUnavailableError,
+    assess_point,
+    chunk_png,
+    chunks_in_bbox,
     get_susceptibility_status,
-    predict_flood_prone_areas,
 )
 from app.schemas.flood_model import FloodModelRequest
 from app.services.flood_model_service import (
@@ -34,11 +39,33 @@ async def susceptibility_status() -> dict[str, Any]:
 
 @router.post("/susceptibility")
 async def flood_prone_areas(request: FloodModelRequest) -> dict[str, Any]:
-    """Show where floodwater is most likely to collect around a point, with the real rainfall forecast."""
+    """Flood-proneness around a point combined with the real rainfall forecast for its province."""
     try:
-        return await predict_flood_prone_areas(request.longitude, request.latitude)
+        return await assess_point(request.longitude, request.latitude)
     except SusceptibilityUnavailableError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@router.get("/susceptibility/chunks")
+async def susceptibility_chunks(
+    west: float = Query(ge=110, le=130),
+    south: float = Query(ge=0, le=25),
+    east: float = Query(ge=110, le=130),
+    north: float = Query(ge=0, le=25),
+) -> dict[str, Any]:
+    """Precomputed nationwide flood-prone overlays (1 degree squares) inside a map viewport."""
+    try:
+        return {"chunks": await run_in_threadpool(chunks_in_bbox, west, south, east, north)}
+    except SusceptibilityUnavailableError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@router.get("/susceptibility/chunk/{chunk_id}.png")
+async def susceptibility_chunk_image(chunk_id: str) -> FileResponse:
+    try:
+        return FileResponse(chunk_png(chunk_id), media_type="image/png", headers={"Cache-Control": "public, max-age=600"})
+    except SusceptibilityUnavailableError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
 
 
 @router.get("/assessments")

@@ -39,7 +39,7 @@ def auc(scores: np.ndarray, labels: np.ndarray) -> float:
     ranks = np.empty(len(scores))
     ranks[order] = np.arange(1, len(scores) + 1)
     positives = labels == 1
-    n_pos, n_neg = positives.sum(), (~positives).sum()
+    n_pos, n_neg = float(positives.sum()), float((~positives).sum())  # floats: int32 counts overflow on Windows
     return float((ranks[positives].sum() - n_pos * (n_pos + 1) / 2) / (n_pos * n_neg))
 
 
@@ -94,7 +94,7 @@ def main() -> None:
         "mindspore_version": ms.__version__,
         "features": list(FEATURE_NAMES),
         "label": f"JRC Global Surface Water occurrence {TEMPORARY_WATER_RANGE[0]}-{TEMPORARY_WATER_RANGE[1]}% (land underwater only part of the time, 1984-2020) vs never water",
-        "inputs": "Copernicus DEM GLO-30 elevation; JRC GSW occurrence (distance to permanent water only)",
+        "inputs": "Copernicus DEM GLO-90 elevation (90 m); JRC GSW occurrence (distance to permanent water only)",
         "train_provinces": train_provinces,
         "heldout_provinces": test_provinces,
         "final": history[-1],

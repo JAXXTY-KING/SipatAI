@@ -125,19 +125,32 @@ export async function predictFloodProneAreas({ latitude, longitude }) {
   return response.json()
 }
 
+function viewportParameters(bounds) {
+  const clamp = (value, low, high) => Math.min(high, Math.max(low, value))
+  return new URLSearchParams({
+    west: String(clamp(bounds.getWest(), 110, 130)),
+    south: String(clamp(bounds.getSouth(), 0, 25)),
+    east: String(clamp(bounds.getEast(), 110, 130)),
+    north: String(clamp(bounds.getNorth(), 0, 25)),
+  })
+}
+
+export async function fetchSusceptibilityChunks(bounds) {
+  const response = await request(`/api/v1/model/susceptibility/chunks?${viewportParameters(bounds)}`)
+  return response.json()
+}
+
+export function susceptibilityChunkUrl(chunkId) {
+  return `${apiBaseUrl}/api/v1/model/susceptibility/chunk/${chunkId}.png`
+}
+
 export async function fetchScanSummary() {
   const response = await request('/api/v1/scan/summary')
   return response.json()
 }
 
 export async function fetchScanOverlays(bounds) {
-  const parameters = new URLSearchParams({
-    west: String(bounds.getWest()),
-    south: String(bounds.getSouth()),
-    east: String(bounds.getEast()),
-    north: String(bounds.getNorth()),
-  })
-  const response = await request(`/api/v1/scan/overlays?${parameters}`)
+  const response = await request(`/api/v1/scan/overlays?${viewportParameters(bounds)}`)
   return response.json()
 }
 

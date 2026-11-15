@@ -40,6 +40,27 @@ ml\.venv\Scripts\python.exe -m ml.data.build_tiles --bbox 120.75 14.95 120.95 15
 
 Pass the resulting manifests to `ml.training.train` as above, with a `--label-source` describing them.
 
+### Flood-prone areas (nationwide prediction layer)
+
+A second MindSpore model, `ml/susceptibility` (`SusceptibilityNet`, a 5-input MLP), learns where floodwater collects. Inputs are real: Copernicus DEM GLO-90 elevation (elevation, local relief at about 1 km and 3 km, slope) and distance to permanent water from JRC Global Surface Water (Landsat 1984-2020). The training label is land that JRC saw underwater only part of the time (3-60% of observations) versus land never underwater. On 14 whole 1-degree regions never used for training the model scores AUC 0.97.
+
+```powershell
+ml\.venv\Scripts\python.exe -m ml.susceptibility.download        # one-off: about 400 MB of public terrain files
+ml\.venv\Scripts\python.exe -m ml.susceptibility.national train-data
+ml\.venv\Scripts\python.exe -m ml.susceptibility.train
+ml\.venv\Scripts\python.exe -m ml.susceptibility.national score   # writes ml/artifacts/susceptibility/national
+```
+
+The backend serves the 95 precomputed one-degree overlays (`/api/v1/model/susceptibility/chunks`) and, for a chosen point, combines the local flood-proneness with that province's real Open-Meteo forecast (`POST /api/v1/model/susceptibility`). Honest limits: the terrain score is a trained model, but turning forecast rain into a watch level (rain band x terrain class) is a stated rule in `susceptibility_service.flood_watch`, not a learned or official forecast. Temperature, pressure and wind are shown but not used to decide the level. The JRC label reflects where water has collected in the past, including paddies and permanent-looking wetlands, so it shows flood-prone terrain, not flood depth or a warning. Wind, temperature and pressure are not yet model inputs because no real flood-labelled weather archive is connected.
+
+### Cloud-robust flood model
+
+Typhoon-season optical images are often cloudy. The flood model was retrained with optical channels randomly removed, and at inference cloudy optical pixels are marked missing so it falls back on radar. Unseen test chips, IoU: 0.76 with optical imagery, 0.61 radar-only. Thresholds are chosen per input mode on validation data only.
+
+### Nationwide scan
+
+`backend/app/jobs/scan_philippines.py` splits the country into 13,594 land tiles (5.12 km) from real province boundaries and runs the MindSpore flood model on the newest Sentinel-1 pass for each, saving results for the map and dashboard (`python -m app.jobs.scan_philippines --order rainfall --limit 200`). One tile takes about a minute on a laptop CPU, so a full national pass needs a much stronger machine; unscanned areas show as blank, not as "no flood".
+
 ### Serving and deployment
 
 3. **Serve** with `backend/requirements-ml.txt` installed. The backend loads `ml/artifacts/checkpoints/sipatai-best.ckpt` (override with `SIPATAI_MODEL_CHECKPOINT`) and exposes `GET /api/v1/model/status` and `POST /api/v1/model/analyze`; the map's "MindSpore flood AI" panel calls them.
