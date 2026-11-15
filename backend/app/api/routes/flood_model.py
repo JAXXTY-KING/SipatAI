@@ -16,6 +16,7 @@ from app.services.susceptibility_service import (
     render_outlook_chunk,
 )
 from app.integrations.province_forecast_client import get_forecast_samples
+from app.services import rain_flood_service
 from app.schemas.flood_model import FloodModelRequest
 from app.services.flood_model_service import (
     FloodModelDataError,
@@ -80,6 +81,34 @@ async def outlook_chunk_image(chunk_id: str) -> Response:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except Exception as error:
         raise HTTPException(status_code=503, detail="Forecast unavailable for the flood outlook.") from error
+    return Response(image, media_type="image/png", headers={"Cache-Control": "public, max-age=300"})
+
+
+@router.get("/context/chunk/{chunk_id}.png")
+async def flood_context_image(chunk_id: str) -> Response:
+    """The MindSpore flood-prone land of one chunk in blue (static; no rain involved)."""
+    try:
+        image = await run_in_threadpool(render_outlook_chunk, chunk_id, [], "context")
+    except SusceptibilityUnavailableError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return Response(image, media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
+
+
+@router.get("/rain-flood/status")
+async def rain_flood_status() -> dict[str, Any]:
+    return await run_in_threadpool(rain_flood_service.get_status)
+
+
+@router.get("/rain-flood/chunk/{chunk_id}.png")
+async def rain_flood_chunk_image(chunk_id: str) -> Response:
+    """Flood predicted by the rain-aware MindSpore model from the real forecast rain, at 90 m."""
+    try:
+        samples, fetched_at = await get_forecast_samples()
+        image = await run_in_threadpool(rain_flood_service.render_forecast, chunk_id, samples, fetched_at)
+    except SusceptibilityUnavailableError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(status_code=503, detail="The flood forecast is unavailable right now.") from error
     return Response(image, media_type="image/png", headers={"Cache-Control": "public, max-age=300"})
 
 

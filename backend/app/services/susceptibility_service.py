@@ -143,9 +143,18 @@ def flood_watch(local: dict[str, Any], forecast: dict[str, Any] | None) -> dict[
 
 
 async def assess_point(longitude: float, latitude: float) -> dict[str, Any]:
+    from app.integrations.province_forecast_client import get_forecast_samples
+    from app.services import rain_flood_service
+
     local = local_susceptibility(longitude, latitude)
     forecast = await _forecast_for(longitude, latitude)
-    return {"local": local, "forecast": forecast, "watch": flood_watch(local, forecast)}
+    result = {"local": local, "forecast": forecast, "watch": flood_watch(local, forecast), "rain_model": None}
+    try:
+        samples, _ = await get_forecast_samples()
+        result["rain_model"] = rain_flood_service.point_prediction(longitude, latitude, samples)
+    except Exception:
+        pass  # The terrain result is still returned if the rain model or forecast is unavailable.
+    return result
 
 
 @lru_cache(maxsize=1)

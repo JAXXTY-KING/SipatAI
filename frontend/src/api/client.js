@@ -163,6 +163,24 @@ export async function fetchLatestImerg() {
   return response.json()
 }
 
+export function imergImageUrl() {
+  return `${apiBaseUrl}/api/v1/weather/imerg/image.png?t=${Math.floor(Date.now() / 600000)}`
+}
+
+// Static MindSpore flood-prone terrain (blue) and the rain-driven MindSpore flood forecast (yellow to red).
+export function floodContextUrl(chunkId) {
+  return `${apiBaseUrl}/api/v1/model/context/chunk/${chunkId}.png`
+}
+
+export function floodForecastUrl(chunkId) {
+  return `${apiBaseUrl}/api/v1/model/rain-flood/chunk/${chunkId}.png?t=${Math.floor(Date.now() / 600000)}`
+}
+
+export async function fetchRainFloodStatus() {
+  const response = await request('/api/v1/model/rain-flood/status')
+  return response.json()
+}
+
 export async function fetchScanSummary() {
   const response = await request('/api/v1/scan/summary')
   return response.json()

@@ -48,19 +48,38 @@
         </button>
 
         <div class="flood-layer-toggles" role="group" aria-label="MindSpore flood layers">
-          <p class="map-tools-heading">MINDSPORE FLOOD LAYERS</p>
+          <p class="map-tools-heading">WHAT MINDSPORE ADDS TO THE MAP</p>
           <label class="map-layer-toggle">
             <input v-model="showProne" type="checkbox" :disabled="!susceptibilityStatus?.ready" @change="refreshProneOverlays">
             <span class="prone-swatch"></span>
-            <span>{{ isOutlookActive || isRainfallScreeningActive ? 'MindSpore flood-risk areas' : 'Flood-prone terrain' }}<small v-if="susceptibilityStatus?.heldout_auc"> · AUC {{ susceptibilityStatus.heldout_auc.toFixed(2) }} on unseen regions</small></span>
+            <span>Flood-prone land<small> · terrain model{{ susceptibilityStatus?.heldout_auc ? `, AUC ${susceptibilityStatus.heldout_auc.toFixed(2)} on regions it never saw` : '' }}</small></span>
+          </label>
+          <label v-if="isOutlookActive || isRainfallScreeningActive" class="map-layer-toggle">
+            <input v-model="showForecast" type="checkbox" :disabled="!rainFloodStatus?.ready" @change="refreshProneOverlays">
+            <span class="forecast-swatch"></span>
+            <span>Predicted flooding from rain<small> · rain model{{ rainFloodStatus?.rain_auc ? `, AUC ${rainFloodStatus.rain_auc.toFixed(2)} on flood events it never saw` : '' }}</small></span>
           </label>
           <label class="map-layer-toggle">
             <input v-model="showScan" type="checkbox" @change="refreshScanOverlays">
             <span class="scan-swatch"></span>
-            <span>Detected floods (satellite)<small v-if="scanSummary"> · {{ scanSummary.tiles_scanned.toLocaleString() }} of {{ scanSummary.tiles_total.toLocaleString() }} tiles scanned{{ scanSummary.flooded_km2 ? `, ${scanSummary.flooded_km2.toLocaleString()} km² flooded` : '' }}</small></span>
+            <span>Floods seen by satellite<small v-if="scanSummary"> · radar scan, {{ scanSummary.tiles_scanned.toLocaleString() }} of {{ scanSummary.tiles_total.toLocaleString() }} areas checked{{ scanSummary.flooded_km2 ? `, ${scanSummary.flooded_km2.toLocaleString()} km² of water found` : '' }}</small></span>
           </label>
-          <small class="parcel-map-attribution">Unscanned areas are blank, not “no flood”. The automatic scan keeps adding tiles, wettest provinces first.</small>
+          <label class="map-layer-toggle">
+            <input v-model="show3d" type="checkbox" @change="setTerrain3d">
+            <span>3D terrain<small> · real elevation, tilt the map to see valleys and floodplains</small></span>
+          </label>
+          <small class="parcel-map-attribution">Areas the satellite scan has not reached yet are left blank. Blank does not mean “no flood”. The scan runs in the background, wettest provinces first.</small>
         </div>
+
+        <details class="map-tools-group">
+          <summary>How MindSpore works here</summary>
+          <div class="map-tools-group-content mindspore-explainer">
+            <p><strong>1 · Reads the satellite.</strong> A ResNet-50 U-Net reads Sentinel-1 radar (it sees through cloud) and Sentinel-2 images and outlines land that is under water right now. It scored {{ aiModelStatus?.test_metrics ? aiModelStatus.test_metrics.radar_optical.iou.toFixed(2) : '0.76' }} IoU (a 0–1 overlap score) on floods it had never seen.</p>
+            <p><strong>2 · Learns which land floods.</strong> A second network learned from satellite elevation and 36 years of Landsat water history which terrain tends to go under water. It scored AUC {{ susceptibilityStatus?.heldout_auc ? susceptibilityStatus.heldout_auc.toFixed(2) : '0.97' }} on regions held out from training. These are the blue areas.</p>
+            <p><strong>3 · Predicts flooding from rain.</strong> A third network takes that terrain plus the forecast rain and predicts where water will collect. It learned from {{ rainFloodStatus?.events ?? 11 }} real floods and scored AUC {{ rainFloodStatus?.rain_auc ? rainFloodStatus.rain_auc.toFixed(2) : '0.86' }} on floods it never saw. These are the yellow-to-red areas.</p>
+            <small>All three run on MindSpore on an ordinary CPU, using only real public data. They have not been run on Huawei Ascend hardware or validated against Philippine flood records, so treat them as decision support, not as an official warning.</small>
+          </div>
+        </details>
 
         <details class="map-tools-group susceptibility-group">
           <summary>Check flood risk at a place</summary>
@@ -89,7 +108,12 @@
                   {{ susceptibilityResult.forecast.temperature_2m_c }} °C · {{ susceptibilityResult.forecast.pressure_msl_hpa }} hPa
                 </small>
               </template>
-              <small>The terrain part is a trained MindSpore model. Linking forecast rain to flood level is a stated rule (rain band × terrain), not a learned or official forecast.</small>
+              <span v-if="susceptibilityResult.rain_model" class="rain-model-verdict">
+                Rain model (MindSpore):
+                <b>{{ { none: 'no rain-driven flooding expected', advisory: 'flood advisory', watch: 'flood watch', warning: 'flood warning' }[susceptibilityResult.rain_model.level] }}</b>
+                · {{ Math.round(susceptibilityResult.rain_model.probability_nearby * 100) }}% flood likelihood within 1 km
+              </span>
+              <small>The blue terrain result and the rain model are trained MindSpore networks. The overall level above links forecast rain to terrain with a stated rule (rain band × terrain), not a learned or official forecast.</small>
               <button class="parcel-refresh-button" type="button" @click="clearSusceptibility">Clear</button>
             </div>
           </div>
@@ -258,8 +282,8 @@
         <span v-if="showRegions"><i class="region-legend-mark"></i> Administrative region · reference only</span>
         <span v-if="showParcels"><i class="parcel-legend-mark"></i> Imported farm parcel</span>
         <span v-if="showDamage && hasDamageFeatures"><i class="damage-legend-mark"></i> Completed flood assessment</span>
-        <span v-if="isOutlookActive"><i class="flood-screening-legend-mark"></i> MindSpore flood-risk areas: blue = flood-prone land, no flood expected · yellow advisory · orange watch · red warning (heavy forecast rain over flood-prone land)</span>
-        <span v-if="isRainfallScreeningActive"><i class="flood-screening-legend-mark"></i> Rain: forecast next 6 h (Open-Meteo model, about 50 km grid) over live Himawari-9 clouds · NASA IMERG observed rain · MindSpore flood-risk areas on top</span>
+        <span v-if="isOutlookActive"><i class="flood-screening-legend-mark"></i> Blue: land that tends to flood (MindSpore terrain model) · yellow, orange, red: flooding the MindSpore rain model expects from the forecast rain, from advisory to warning</span>
+        <span v-if="isRainfallScreeningActive"><i class="flood-screening-legend-mark"></i> Satellite clouds · satellite-measured rain (green to red) · forecast rain, next 6 h (purple) · MindSpore flood prediction (yellow to red) on top</span>
         <span v-if="isPressureActive"><i class="weather-legend-mark"></i> Sea-level pressure: blue lower, red higher · lines join equal pressure · L / H mark the lowest and highest</span>
         <span v-if="isSatelliteImageActive"><i class="satellite-image-legend-mark"></i> Live cloud-only Himawari-9 imagery</span>
         <span v-if="isWindForecastActive"><i class="wind-forecast-legend-mark"></i> Forecast wind direction and speed · Open-Meteo</span>
@@ -280,7 +304,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import mapboxgl from 'mapbox-gl'
-import { analyzeFloodArea, fetchDamageMap, fetchFloodModelStatus, fetchHimawariTileFrames, fetchLatestImerg, fetchParcelMap, fetchPressureIsobars, fetchProvinceForecast, fetchScanOverlays, fetchScanSummary, fetchSusceptibilityChunks, fetchSusceptibilityStatus, fetchWindForecast, forecastFieldUrl, himawariTileTemplate, outlookChunkUrl, predictFloodProneAreas, scanOverlayUrl, susceptibilityChunkUrl } from '../api/client'
+import { analyzeFloodArea, fetchDamageMap, fetchFloodModelStatus, fetchHimawariTileFrames, fetchLatestImerg, fetchParcelMap, fetchPressureIsobars, fetchProvinceForecast, fetchRainFloodStatus, fetchScanOverlays, fetchScanSummary, fetchSusceptibilityChunks, fetchSusceptibilityStatus, fetchWindForecast, floodContextUrl, floodForecastUrl, forecastFieldUrl, himawariTileTemplate, imergImageUrl, predictFloodProneAreas, scanOverlayUrl, susceptibilityChunkUrl } from '../api/client'
 import { severityColors } from '../map/severity'
 
 const props = defineProps({
@@ -289,8 +313,8 @@ const props = defineProps({
 const emit = defineEmits(['location-selected'])
 const mapToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN
 const weatherLayers = [
-  { value: 'outlook', short: 'Flood outlook', icon: '🌊', label: 'Flood outlook · automatic', description: 'MindSpore flood-risk areas, drawn exactly where the terrain is flood-prone and recoloured by the real forecast rain over each spot. Yellow, orange and red appear only where heavy rain is forecast over flood-prone land; the blue areas are flood-prone land with no flood expected yet.' },
-  { value: 'rainfall', short: 'Rain watch', icon: '🌧', label: 'Rain watch', description: 'Where it is raining: forecast rain for the next 6 hours (purple to magenta) over the live Himawari-9 cloud picture, plus NASA satellite-observed rain (green to red). MindSpore flood-risk areas are drawn on top.' },
+  { value: 'outlook', short: 'Flood outlook', icon: '🌊', label: 'Flood outlook · MindSpore', description: 'Where floods are likely, on real terrain. Blue is land that tends to flood. Yellow, orange and red is where the MindSpore rain model expects water to collect from the forecast rain. Updates itself.' },
+  { value: 'rainfall', short: 'Rain watch', icon: '🌧', label: 'Rain watch', description: 'Where it is raining, and what that rain could flood. Satellite clouds (Himawari-9) and satellite-measured rain (NASA, green to red) show what is happening; forecast rain (purple) shows the next 6 hours; the MindSpore flood prediction sits on top.' },
   { value: 'clouds', short: 'Clouds', icon: '☁', label: 'Clouds · live satellite', description: 'Live JMA Himawari-9 cloud imagery with playback.' },
   { value: 'wind', short: 'Wind', icon: '💨', label: 'Wind · 72-hour forecast', description: 'Animated wind speed and direction forecast.' },
   { value: 'precipitation', short: 'Next 6 h', icon: '💧', label: 'Precipitation · next 6 hours', description: 'Forecast rain total for the next six hours, by province.' },
@@ -354,13 +378,13 @@ const floodScreeningStatus = computed(() => {
     minute: '2-digit',
   })
   if (isOutlookActive.value) {
-    const atRisk = collection.features.filter((feature) => (
-      ['watch', 'warning'].includes(feature.properties?.flood_level)
-    )).length
-    const advisory = collection.features.filter((feature) => feature.properties?.flood_level === 'advisory').length
-    return atRisk || advisory
-      ? `${atRisk} province${atRisk === 1 ? '' : 's'} on flood watch or warning, ${advisory} advisory · updated ${updatedAt}`
-      : `No province at flood risk in the next 72 h (forecast rain is light) · updated ${updatedAt}`
+    const wettest = collection.features.reduce((best, feature) => (
+      Number(feature.properties?.rainfall_24h_mm) > Number(best.properties?.rainfall_24h_mm) ? feature : best
+    ), collection.features[0])
+    const peak = Number(wettest.properties.rainfall_24h_mm)
+    return peak < 10
+      ? `Light rain only: the heaviest forecast is ${peak.toFixed(0)} mm in 24 h (${wettest.properties.name}), so the rain model draws no new flooding. Blue shows land that floods when heavy rain comes · updated ${updatedAt}`
+      : `Heaviest forecast rain: ${peak.toFixed(0)} mm in 24 h over ${wettest.properties.name}. Yellow to red shows where the MindSpore rain model expects water to collect · updated ${updatedAt}`
   }
   if (isRainfallScreeningActive.value) {
     const raining = collection.features.filter((feature) => Number(feature.properties?.precipitation_6h_mm) >= 0.1).length
@@ -406,6 +430,9 @@ const susceptibilityResult = ref(null)
 const susceptibilityError = ref('')
 const isPredicting = ref(false)
 const showProne = ref(true)
+const showForecast = ref(true)
+const show3d = ref(false)
+const rainFloodStatus = ref(null)
 const proneChunkIds = new Set()
 let proneRefreshTimer
 let proneRequestSequence = 0
@@ -413,22 +440,24 @@ let proneRequestSequence = 0
 let proneVariant = 'plain'
 
 function removeProneChunk(chunkId) {
-  const layerId = `prone-${chunkId}`
-  if (map?.getLayer(layerId)) map.removeLayer(layerId)
-  if (map?.getSource(layerId)) map.removeSource(layerId)
+  for (const layerId of [`prone-${chunkId}`, `forecast-${chunkId}`]) {
+    if (map?.getLayer(layerId)) map.removeLayer(layerId)
+    if (map?.getSource(layerId)) map.removeSource(layerId)
+  }
   proneChunkIds.delete(chunkId)
 }
 
 async function refreshProneOverlays() {
   if (!map) return
   const currentRequest = ++proneRequestSequence
-  // With rain on screen the same MindSpore map is recoloured by the forecast rain over each pixel.
+  // With rain on screen the flood-prone land turns blue and the MindSpore rain model draws the predicted flooding on top.
   const variant = isOutlookActive.value || isRainfallScreeningActive.value ? 'outlook' : 'plain'
-  if (variant !== proneVariant) {
+  const signature = `${variant}-${showProne.value}-${showForecast.value}`
+  if (signature !== proneVariant) {
     for (const chunkId of [...proneChunkIds]) removeProneChunk(chunkId)
-    proneVariant = variant
+    proneVariant = signature
   }
-  if (!showProne.value || !susceptibilityStatus.value?.ready) {
+  if (!susceptibilityStatus.value?.ready || (!showProne.value && !(variant === 'outlook' && showForecast.value))) {
     for (const chunkId of [...proneChunkIds]) removeProneChunk(chunkId)
     return
   }
@@ -439,16 +468,23 @@ async function refreshProneOverlays() {
     for (const chunkId of [...proneChunkIds]) if (!wanted.has(chunkId)) removeProneChunk(chunkId)
     for (const chunk of chunks) {
       if (proneChunkIds.has(chunk.id)) continue
-      const layerId = `prone-${chunk.id}`
-      map.addSource(layerId, {
-        type: 'image',
-        url: variant === 'outlook' ? outlookChunkUrl(chunk.id) : susceptibilityChunkUrl(chunk.id),
-        coordinates: [[chunk.west, chunk.north], [chunk.east, chunk.north], [chunk.east, chunk.south], [chunk.west, chunk.south]],
-      })
-      map.addLayer(
-        { id: layerId, type: 'raster', source: layerId, paint: { 'raster-opacity': 0.95, 'raster-resampling': 'linear', 'raster-fade-duration': 0 } },
-        map.getLayer(AI_OVERLAY_LAYER) ? AI_OVERLAY_LAYER : undefined,
-      )
+      const coordinates = [[chunk.west, chunk.north], [chunk.east, chunk.north], [chunk.east, chunk.south], [chunk.west, chunk.south]]
+      const beforeLayer = map.getLayer(AI_OVERLAY_LAYER) ? AI_OVERLAY_LAYER : undefined
+      const paint = { 'raster-opacity': 0.95, 'raster-resampling': 'linear', 'raster-fade-duration': 0 }
+      if (showProne.value) {
+        const layerId = `prone-${chunk.id}`
+        map.addSource(layerId, {
+          type: 'image',
+          url: variant === 'outlook' ? floodContextUrl(chunk.id) : susceptibilityChunkUrl(chunk.id),
+          coordinates,
+        })
+        map.addLayer({ id: layerId, type: 'raster', source: layerId, paint }, beforeLayer)
+      }
+      if (variant === 'outlook' && showForecast.value) {
+        const layerId = `forecast-${chunk.id}`
+        map.addSource(layerId, { type: 'image', url: floodForecastUrl(chunk.id), coordinates })
+        map.addLayer({ id: layerId, type: 'raster', source: layerId, paint }, beforeLayer)
+      }
       proneChunkIds.add(chunk.id)
     }
   } catch {
@@ -519,18 +555,24 @@ function removeScanTile(tileId) {
 function ensureScanMarkers() {
   if (map.getSource('scan-markers')) return
   map.addSource('scan-markers', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+  // A soft glow marks where the radar scan found water; real flood outlines take over when you zoom in.
+  map.addLayer({
+    id: 'scan-glow',
+    type: 'heatmap',
+    source: 'scan-markers',
+    paint: {
+      'heatmap-weight': ['interpolate', ['linear'], ['get', 'flooded_km2'], 0, 0.35, 5, 0.7, 25, 1],
+      'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 4, 16, 8, 38],
+      'heatmap-intensity': 1.1,
+      'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'], 0, 'rgba(37,99,235,0)', 0.25, 'rgba(96,165,250,0.45)', 0.6, 'rgba(37,99,235,0.7)', 1, 'rgba(23,37,140,0.9)'],
+      'heatmap-opacity': ['interpolate', ['linear'], ['zoom'], 8, 0.95, 10, 0],
+    },
+  })
   map.addLayer({
     id: 'scan-markers',
     type: 'circle',
     source: 'scan-markers',
-    paint: {
-      'circle-color': ['interpolate', ['linear'], ['get', 'flooded_fraction'], 0, '#5aa9e6', 0.2, '#1d5fd1', 0.5, '#0b2a8a'],
-      'circle-radius': ['interpolate', ['linear'], ['zoom'], 4, 4, 8, 8],
-      'circle-stroke-color': '#ffffff',
-      'circle-stroke-width': 1.5,
-      'circle-opacity': ['interpolate', ['linear'], ['zoom'], 8, 0.9, 10, 0],
-      'circle-stroke-opacity': ['interpolate', ['linear'], ['zoom'], 8, 1, 10, 0],
-    },
+    paint: { 'circle-radius': 12, 'circle-color': '#2563eb', 'circle-opacity': 0.01 },
   })
   map.on('click', 'scan-markers', (event) => {
     const properties = event.features?.[0]?.properties
@@ -928,8 +970,8 @@ async function updateFieldLayers() {
   }
   if (!map) return
   if (imerg.value && !map.getSource('imerg-rain')) {
-    map.addSource('imerg-rain', { type: 'raster', tiles: [imerg.value.tiles], tileSize: 256, maxzoom: 6 })
-    map.addLayer({ id: 'imerg-rain', type: 'raster', source: 'imerg-rain', layout: { visibility: 'none' }, paint: { 'raster-opacity': 0.8, 'raster-fade-duration': 0 } }, 'admin-region-fill')
+    map.addSource('imerg-rain', { type: 'image', url: imergImageUrl(), coordinates: imerg.value.coordinates })
+    map.addLayer({ id: 'imerg-rain', type: 'raster', source: 'imerg-rain', layout: { visibility: 'none' }, paint: { 'raster-opacity': 0.9, 'raster-resampling': 'linear', 'raster-fade-duration': 0 } }, 'admin-region-fill')
   }
   setLayerVisibility('imerg-rain', showObserved)
 }
@@ -1008,6 +1050,45 @@ function addParcelLayer() {
   map.on('mouseleave', 'farm-parcel-fill', () => {
     map.getCanvas().style.cursor = ''
   })
+}
+
+function addTerrainRelief() {
+  // Mapbox's own elevation tiles are rate-limited for this token, so relief comes from the open AWS Terrain Tiles (Terrarium).
+  map.addSource('mapbox-dem', {
+    type: 'raster-dem',
+    tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
+    encoding: 'terrarium',
+    tileSize: 256,
+    maxzoom: 12,
+    attribution: 'Terrain: Mapzen / AWS Terrain Tiles (SRTM, USGS 3DEP, GMTED)',
+  })
+  const beforeLayerId = map.getStyle()?.layers?.find((layer) => layer.type === 'symbol')?.id
+  map.addLayer({
+    id: 'terrain-hillshade',
+    type: 'hillshade',
+    source: 'mapbox-dem',
+    paint: { 'hillshade-exaggeration': 0.5, 'hillshade-shadow-color': '#26342f', 'hillshade-highlight-color': '#ffffff', 'hillshade-accent-color': '#3d5a50' },
+  }, beforeLayerId)
+}
+
+function setTerrain3d() {
+  if (!map) return
+  if (show3d.value) {
+    map.setTerrain({ source: 'mapbox-dem', exaggeration: 1.6 })
+    map.easeTo({ pitch: 58, duration: 900 })
+  } else {
+    map.setTerrain(null)
+    map.easeTo({ pitch: 0, duration: 700 })
+  }
+}
+
+async function loadRainFloodStatus() {
+  try {
+    rainFloodStatus.value = await fetchRainFloodStatus()
+  } catch {
+    rainFloodStatus.value = { ready: false }
+  }
+  void refreshProneOverlays()
 }
 
 function addAdministrativeRegionLayer() {
@@ -1141,13 +1222,11 @@ function addFloodScreeningLayer(collection) {
     const heading = document.createElement('strong')
     heading.textContent = properties.name ?? 'Province'
     content.append(heading)
-    const levelNames = { none: 'No flood risk', advisory: 'Advisory', watch: 'Flood watch', warning: 'Flood warning' }
     const details = selectedWeatherLayer.value === 'outlook'
       ? [
-          ['Flood outlook', levelNames[properties.flood_level] ?? 'Not available'],
-          ['Wettest 24 h (next 72 h)', `${Number(properties.rainfall_24h_mm).toFixed(1)} mm`],
-          ['Flood-prone terrain', `${Math.round(Number(properties.terrain_share ?? 0) * 100)}% of province (MindSpore)`],
-          ['Why', properties.flood_message],
+          ['Wettest 24 hours ahead', `${Number(properties.rainfall_24h_mm).toFixed(1)} mm`],
+          ['Rain over 72 hours', `${Number(properties.rainfall_72h_mm).toFixed(1)} mm`],
+          ['Flood-prone land', `${Math.round(Number(properties.terrain_share ?? 0) * 100)}% of this province (MindSpore terrain model)`],
         ]
       : selectedWeatherLayer.value === 'temperature'
       ? [['Air temperature', `${Number(properties.temperature_2m_c).toFixed(1)} °C`]]
@@ -1471,7 +1550,9 @@ function initializeMapLayers(styleReady = false) {
   mapLayersInitialized = true
   try {
     addAdministrativeRegionLayer()
+    addTerrainRelief()
     addParcelLayer()
+    void loadRainFloodStatus()
     if (isCloudBaseActive.value) setSatelliteImageVisibility()
     void loadFloodScreening()
     if (isWindForecastActive.value) {

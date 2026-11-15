@@ -36,8 +36,16 @@ def _interpolate(samples: list[dict[str, Any]], key: str, longitudes: np.ndarray
 
 
 def _grid() -> tuple[np.ndarray, np.ndarray]:
+    """Pixel centres, evenly spaced in web-mercator height so the image drapes onto the map without drift."""
     longitudes = np.arange(WEST, EAST, RESOLUTION) + RESOLUTION / 2
-    latitudes = np.arange(NORTH, SOUTH, -RESOLUTION) - RESOLUTION / 2
+
+    def mercator(latitude: float) -> float:
+        return float(np.log(np.tan(np.pi / 4 + np.radians(latitude) / 2)))
+
+    steps = int(round((NORTH - SOUTH) / RESOLUTION))
+    top, bottom = mercator(NORTH), mercator(SOUTH)
+    heights = top - (np.arange(steps) + 0.5) * (top - bottom) / steps
+    latitudes = np.degrees(2 * np.arctan(np.exp(heights)) - np.pi / 2)
     return np.meshgrid(longitudes, latitudes)
 
 
@@ -121,11 +129,14 @@ def outlook_rgba(base: np.ndarray, scores: np.ndarray, west: int, south: int, sa
     Rain bands and terrain weights follow the documented flood_watch rule (rain band x terrain class).
     """
     height, width = scores.shape
-    coarse = 48
-    longitudes = west + (np.arange(coarse) + 0.5) / coarse
-    latitudes = south + 1 - (np.arange(coarse) + 0.5) / coarse
-    rain, _ = _interpolate(samples, "rainfall_24h_mm", *np.meshgrid(longitudes, latitudes))
-    rain = zoom(rain, (height / coarse, width / coarse), order=1)[:height, :width]
+    if samples:
+        coarse = 48
+        longitudes = west + (np.arange(coarse) + 0.5) / coarse
+        latitudes = south + 1 - (np.arange(coarse) + 0.5) / coarse
+        rain, _ = _interpolate(samples, "rainfall_24h_mm", *np.meshgrid(longitudes, latitudes))
+        rain = zoom(rain, (height / coarse, width / coarse), order=1)[:height, :width]
+    else:
+        rain = np.zeros((height, width), dtype=np.float32)
     band = (rain >= 25).astype(int) + (rain >= 50) + (rain >= 100)
     terrain = np.where(scores >= 0.75 * 255, 3, np.where(scores >= 0.5 * 255, 2, 1))
     weight = band * terrain

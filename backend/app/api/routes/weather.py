@@ -17,7 +17,7 @@ from app.integrations.open_meteo_weather_client import (
 from app.integrations.province_forecast_client import get_province_forecast
 from app.services.susceptibility_service import province_outlook
 from app.services import weather_fields
-from app.integrations.imerg_client import latest_imerg_time
+from app.integrations.imerg_client import imerg_image, latest_imerg_time
 from app.integrations.flood_screening_client import (
     FloodScreeningError,
     get_nationwide_flood_screening,
@@ -62,6 +62,18 @@ async def read_latest_imerg() -> dict[str, Any]:
     if observed is None:
         raise HTTPException(status_code=502, detail="NASA IMERG rain scenes are unavailable.")
     return observed
+
+
+@router.get("/imerg/image.png", include_in_schema=False)
+async def read_imerg_image() -> Response:
+    observed = await latest_imerg_time()
+    if observed is None:
+        raise HTTPException(status_code=502, detail="NASA IMERG rain scenes are unavailable.")
+    try:
+        image = await imerg_image(observed["time"])
+    except Exception as error:
+        raise HTTPException(status_code=502, detail="NASA IMERG rain scene could not be assembled.") from error
+    return Response(image, media_type="image/png", headers={"Cache-Control": "public, max-age=600"})
 
 
 @router.get("/himawari/tile-frames", include_in_schema=False)

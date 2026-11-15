@@ -3,8 +3,8 @@
     <aside class="explore-panel" aria-label="Map exploration">
       <div class="explore-intro">
         <p class="eyebrow">SIPATAI MAP EXPLORER</p>
-        <h1>See the bigger picture.</h1>
-        <p>Explore weather, land and flood context across the Philippines.</p>
+        <h1>Where could it flood next?</h1>
+        <p>Real satellite images, real weather and three MindSpore AI models, brought together on one map of the Philippines.</p>
       </div>
       <WeatherContextPanel
         :coordinates="weatherCoordinates"
@@ -12,7 +12,7 @@
       />
       <div class="explore-note">
         <span class="explore-note-icon" aria-hidden="true">i</span>
-        <p><strong>Screening, not a prediction.</strong> Forecast rain and elevation provide a coarse prototype view, not a typhoon track, official warning, or flood boundary.</p>
+        <p><strong>A research prototype, not an official warning.</strong> Predictions come from AI models trained on past floods and tested on floods they had not seen. Always follow PAGASA and your local disaster office.</p>
       </div>
     </aside>
     <div class="map-stage">
