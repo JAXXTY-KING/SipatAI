@@ -148,7 +148,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .weather-map-scale-labels { display: flex; justify-content: space-between; color: var(--muted); font-size: .62rem; }
 .weather-scale-precipitation .weather-map-gradient { background: linear-gradient(90deg, #f2f7fa, #8be0f2, #30a9d8, #4169e1, #7b2cbf, #e53935, #8e0000); }
 .weather-scale-temperature .weather-map-gradient { background: linear-gradient(90deg, #313695, #4575b4, #74add1, #abd9e9, #ffffbf, #fdae61, #f46d43, #d73027); }
-.weather-scale-pressure .weather-map-gradient { background: linear-gradient(90deg, #762a83, #af8dc3, #e7d4e8, #f7f7f7, #b8e186, #7fbc41, #276419); }
+.weather-scale-pressure .weather-map-gradient { background: linear-gradient(90deg, #7b3294, #c2a5cf, #a6dba0, #5aae61, #1b7837); }
 .satellite-image-legend-mark { width: .7rem; height: .7rem; border: 1px solid #5363a1; background: linear-gradient(135deg, #533191, #e74f63 55%, #f5df4b); }
 .wind-forecast-legend-mark { width: .7rem; height: .7rem; }
 .satellite-live-status { max-width: min(28rem, calc(100% - 1.5rem)); }

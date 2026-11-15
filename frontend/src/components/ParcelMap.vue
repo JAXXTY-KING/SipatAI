@@ -250,7 +250,7 @@
         <span v-if="showRegions"><i class="region-legend-mark"></i> Administrative region · reference only</span>
         <span v-if="showParcels"><i class="parcel-legend-mark"></i> Imported farm parcel</span>
         <span v-if="showDamage && hasDamageFeatures"><i class="damage-legend-mark"></i> Completed flood assessment</span>
-        <span v-if="isOutlookActive"><i class="flood-screening-legend-mark"></i> Flood outlook by province: none (green) · advisory (yellow) · watch (orange) · warning (red)</span>
+        <span v-if="isOutlookActive"><i class="flood-screening-legend-mark"></i> Flood outlook by province: none (green, darker = more flood-prone terrain) · advisory (yellow) · watch (orange) · warning (red)</span>
         <span v-if="isRainfallScreeningActive"><i class="flood-screening-legend-mark"></i> Rainfall screening by province: lower (green) · watch (amber) · elevated (red)</span>
         <span v-if="isSatelliteImageActive"><i class="satellite-image-legend-mark"></i> Live cloud-only Himawari-9 imagery</span>
         <span v-if="isWindForecastActive"><i class="wind-forecast-legend-mark"></i> Forecast wind direction and speed · Open-Meteo</span>
@@ -368,12 +368,12 @@ const weatherScaleTitle = computed(() => ({
 const weatherScaleMinimum = computed(() => ({
   precipitation: '0 mm',
   temperature: '−5 °C',
-  pressure: '980 hPa',
+  pressure: '1000 hPa',
 }[selectedWeatherLayer.value] ?? ''))
 const weatherScaleMaximum = computed(() => ({
   precipitation: '50+ mm',
   temperature: '40 °C',
-  pressure: '1040 hPa',
+  pressure: '1020 hPa',
 }[selectedWeatherLayer.value] ?? ''))
 const isLoadingParcels = ref(false)
 const hasDamageFeatures = ref(false)
@@ -473,6 +473,7 @@ const scanSummary = ref(null)
 const showScan = ref(true)
 const scanTileIds = new Set()
 let scanRefreshTimer
+let scanPollTimer
 let scanRequestSequence = 0
 
 async function loadScanSummary() {
@@ -490,16 +491,71 @@ function removeScanTile(tileId) {
   scanTileIds.delete(tileId)
 }
 
+function ensureScanMarkers() {
+  if (map.getSource('scan-markers')) return
+  map.addSource('scan-markers', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+  map.addLayer({
+    id: 'scan-markers',
+    type: 'circle',
+    source: 'scan-markers',
+    paint: {
+      'circle-color': ['interpolate', ['linear'], ['get', 'flooded_fraction'], 0, '#5aa9e6', 0.2, '#1d5fd1', 0.5, '#0b2a8a'],
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 4, 4, 8, 8],
+      'circle-stroke-color': '#ffffff',
+      'circle-stroke-width': 1.5,
+      'circle-opacity': ['interpolate', ['linear'], ['zoom'], 8, 0.9, 10, 0],
+      'circle-stroke-opacity': ['interpolate', ['linear'], ['zoom'], 8, 1, 10, 0],
+    },
+  })
+  map.on('click', 'scan-markers', (event) => {
+    const properties = event.features?.[0]?.properties
+    if (!properties) return
+    event.originalEvent.stopPropagation()
+    const content = document.createElement('div')
+    const heading = document.createElement('strong')
+    heading.textContent = `Satellite scan · ${properties.province}`
+    content.append(heading)
+    for (const text of [
+      `Water detected: ${Number(properties.flooded_km2).toFixed(1)} km² (${Math.round(Number(properties.flooded_fraction) * 100)}% of the 5 km tile)`,
+      `Sentinel-1 radar: ${properties.s1_date}`,
+      `Mode: ${properties.mode}`,
+    ]) {
+      const line = document.createElement('p')
+      line.textContent = text
+      content.append(line)
+    }
+    const note = document.createElement('small')
+    note.textContent = 'MindSpore detection of surface water; paddies, fishponds and wetlands can look like flood.'
+    content.append(note)
+    new mapboxgl.Popup({ maxWidth: '18rem' }).setLngLat(event.lngLat).setDOMContent(content).addTo(map)
+  })
+  map.on('mouseenter', 'scan-markers', () => { map.getCanvas().style.cursor = 'pointer' })
+  map.on('mouseleave', 'scan-markers', () => { map.getCanvas().style.cursor = '' })
+}
+
 async function refreshScanOverlays() {
   if (!map) return
   const currentRequest = ++scanRequestSequence
+  ensureScanMarkers()
   if (!showScan.value) {
     for (const tileId of [...scanTileIds]) removeScanTile(tileId)
+    map.getSource('scan-markers').setData({ type: 'FeatureCollection', features: [] })
     return
   }
   try {
     const { tiles } = await fetchScanOverlays(map.getBounds())
     if (currentRequest !== scanRequestSequence || !map) return
+    map.getSource('scan-markers').setData({
+      type: 'FeatureCollection',
+      features: tiles.map((tile) => ({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [tile.longitude, tile.latitude] },
+        properties: {
+          province: tile.province, flooded_km2: tile.flooded_km2, flooded_fraction: tile.flooded_fraction,
+          s1_date: tile.s1_date, mode: tile.mode,
+        },
+      })),
+    })
     const wanted = new Set(tiles.map((tile) => tile.tile_id))
     for (const tileId of [...scanTileIds]) if (!wanted.has(tileId)) removeScanTile(tileId)
     for (const tile of tiles) {
@@ -896,14 +952,15 @@ function setFloodScreeningDisplay() {
       'warning', '#c83e3e',
       'watch', '#ee8a2b',
       'advisory', '#f0c93a',
-      '#5fa98a',
+      // No flood expected: shade by how much of the province is MindSpore flood-prone terrain.
+      ['interpolate', ['linear'], ['to-number', ['get', 'terrain_share'], 0], 0, '#d6ece1', 0.05, '#8fcdb0', 0.15, '#2f8f6b'],
     ])
     map.setPaintProperty(fillLayer, 'fill-opacity', [
       'match', ['get', 'flood_level'],
       'warning', 0.62,
       'watch', 0.58,
       'advisory', 0.5,
-      0.14,
+      0.5,
     ])
     map.setPaintProperty(outlineLayer, 'line-opacity', [
       'match', ['get', 'flood_level'],
@@ -955,8 +1012,8 @@ function setFloodScreeningDisplay() {
     ],
     pressure: [
       'pressure_msl_hpa',
-      [980, '#762a83'], [990, '#af8dc3'], [1000, '#e7d4e8'], [1010, '#f7f7f7'],
-      [1020, '#b8e186'], [1030, '#7fbc41'], [1040, '#276419'],
+      [1000, '#7b3294'], [1006, '#c2a5cf'], [1010, '#a6dba0'],
+      [1014, '#5aae61'], [1020, '#1b7837'],
     ],
   }[selectedWeatherLayer.value]
   if (!fieldAndStops) return
@@ -1361,6 +1418,10 @@ function initializeMapLayers(styleReady = false) {
     map.on('moveend', scheduleProneRefresh)
     void loadScanSummary()
     void refreshScanOverlays()
+    scanPollTimer = window.setInterval(() => {
+      void loadScanSummary()
+      void refreshScanOverlays()
+    }, 120000)
     void loadParcels()
     void fetchDamageMap()
       .then((collection) => {
@@ -1430,6 +1491,7 @@ onBeforeUnmount(() => {
   window.clearTimeout(scanRefreshTimer)
   window.clearTimeout(proneRefreshTimer)
   window.clearTimeout(mapStartupTimer)
+  window.clearInterval(scanPollTimer)
   window.clearInterval(satelliteRefreshTimer)
   window.clearInterval(windForecastTimer)
   window.clearInterval(windPlaybackTimer)
