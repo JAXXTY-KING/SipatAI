@@ -17,7 +17,7 @@ We are students of **Mariano Marcos State University (MMSU)**, Philippines.
 | Andrew D. Caditan | Student developer |
 | Aldrich Jave O. Calonge | Student developer |
 | Hanni Marie Dadia | Student developer |
-| *Instructor: to be added* | The competition requires one instructor per team. |
+| Renante Burgos | Instructor (the competition requires one instructor per team) |
 
 ---
 
@@ -86,7 +86,7 @@ We are entering the **Innovation Competition** of the Huawei ICT Competition 202
 
 | Rule (from the manual) | What it means for our entry |
 |---|---|
-| Teams have **1 instructor and up to 3 students**, all full-time university students at registration. | We are three MMSU students. We still need to name our instructor. |
+| Teams have **1 instructor and up to 3 students**, all full-time university students at registration. | We are three MMSU students, and our instructor is Renante Burgos. |
 | Each contestant joins **only one track** and registers in **one region** only. | We are registered only in Innovation. |
 | Entries must be **original, legal and IP-clear**, and must not discriminate or violate privacy. | All code is our own. Third-party data is public and credited in [section 18](#18-data-licences-and-acknowledgements). We collect no personal data. |
 | **IP stays with the participants.** The organiser gets free rights to reproduce, show and disseminate entries. | We keep our IP. We have not yet chosen an open-source licence. |
@@ -613,7 +613,7 @@ SipatAI would not exist without these open resources. Licences are those stated 
 
 **Our code:** We have not yet chosen a licence for our own code. Until then, all rights are reserved by the authors, with the usage rights the Huawei ICT Competition rules grant to the organiser.
 
-We thank **Mariano Marcos State University**, our instructor, the **Huawei ICT Competition** organisers and **Huawei ICT Academy** for the opportunity, and the open-data communities named above.
+We thank **Mariano Marcos State University**, our instructor **Renante Burgos**, the **Huawei ICT Competition** organisers and **Huawei ICT Academy** for the opportunity, and the open-data communities named above.
 
 ---
 
