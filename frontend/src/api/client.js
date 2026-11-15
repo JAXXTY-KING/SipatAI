@@ -172,8 +172,9 @@ export function floodContextUrl(chunkId) {
   return `${apiBaseUrl}/api/v1/model/context/chunk/${chunkId}.png`
 }
 
-export function floodForecastUrl(chunkId) {
-  return `${apiBaseUrl}/api/v1/model/rain-flood/chunk/${chunkId}.png?t=${Math.floor(Date.now() / 600000)}`
+export function floodForecastUrl(chunkId, rainMm = 0) {
+  const scenario = rainMm ? `&rain_mm=${rainMm}` : ''
+  return `${apiBaseUrl}/api/v1/model/rain-flood/chunk/${chunkId}.png?t=${Math.floor(Date.now() / 600000)}${scenario}`
 }
 
 export async function fetchRainFloodStatus() {

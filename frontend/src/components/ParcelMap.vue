@@ -59,6 +59,18 @@
             <span class="forecast-swatch"></span>
             <span>Predicted flooding from rain<small> · rain model{{ rainFloodStatus?.rain_auc ? `, AUC ${rainFloodStatus.rain_auc.toFixed(2)} on flood events it never saw` : '' }}</small></span>
           </label>
+          <label v-if="(isOutlookActive || isRainfallScreeningActive) && showForecast" class="weather-layer-select">
+            Rain for the flood prediction
+            <select v-model="scenarioRain" aria-label="Rain used for the MindSpore flood prediction" @change="refreshProneOverlays">
+              <option value="0">Real forecast (today)</option>
+              <option value="50">What if: 50 mm in a day (heavy rain)</option>
+              <option value="100">What if: 100 mm in a day (very heavy)</option>
+              <option value="200">What if: 200 mm in a day (typhoon-level)</option>
+            </select>
+          </label>
+          <small v-if="scenarioRain !== '0' && (isOutlookActive || isRainfallScreeningActive)" class="parcel-map-attribution">
+            Scenario, not a forecast: the same {{ scenarioRain }} mm of rain is assumed over the whole country to show where the MindSpore rain model expects water to collect.
+          </small>
           <label class="map-layer-toggle">
             <input v-model="showScan" type="checkbox" @change="refreshScanOverlays">
             <span class="scan-swatch"></span>
@@ -431,6 +443,7 @@ const susceptibilityError = ref('')
 const isPredicting = ref(false)
 const showProne = ref(true)
 const showForecast = ref(true)
+const scenarioRain = ref('0')
 const show3d = ref(false)
 const rainFloodStatus = ref(null)
 const proneChunkIds = new Set()
@@ -452,7 +465,7 @@ async function refreshProneOverlays() {
   const currentRequest = ++proneRequestSequence
   // With rain on screen the flood-prone land turns blue and the MindSpore rain model draws the predicted flooding on top.
   const variant = isOutlookActive.value || isRainfallScreeningActive.value ? 'outlook' : 'plain'
-  const signature = `${variant}-${showProne.value}-${showForecast.value}`
+  const signature = `${variant}-${showProne.value}-${showForecast.value}-${scenarioRain.value}`
   if (signature !== proneVariant) {
     for (const chunkId of [...proneChunkIds]) removeProneChunk(chunkId)
     proneVariant = signature
@@ -482,7 +495,7 @@ async function refreshProneOverlays() {
       }
       if (variant === 'outlook' && showForecast.value) {
         const layerId = `forecast-${chunk.id}`
-        map.addSource(layerId, { type: 'image', url: floodForecastUrl(chunk.id), coordinates })
+        map.addSource(layerId, { type: 'image', url: floodForecastUrl(chunk.id, Number(scenarioRain.value)), coordinates })
         map.addLayer({ id: layerId, type: 'raster', source: layerId, paint }, beforeLayer)
       }
       proneChunkIds.add(chunk.id)
