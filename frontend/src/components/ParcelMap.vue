@@ -1263,12 +1263,16 @@ async function openPlaceReport(event) {
   const province = provinces[0]?.properties ?? null
   const content = document.createElement('div')
   content.className = 'place-report'
+  content.tabIndex = 0
+  content.setAttribute('role', 'region')
+  content.setAttribute('aria-label', 'Location report')
   const loading = document.createElement('p')
   loading.className = 'place-report-note'
   loading.textContent = 'Checking this spot with the MindSpore models…'
   content.append(loading)
   placePopup?.remove()
-  placePopup = new mapboxgl.Popup({ maxWidth: '20rem', className: 'place-report-popup' }).setLngLat(event.lngLat).setDOMContent(content).addTo(map)
+  const popup = new mapboxgl.Popup({ maxWidth: 'min(20rem, calc(100cqw - 1rem))', className: 'place-report-popup' }).setLngLat(event.lngLat).setDOMContent(content).addTo(map)
+  placePopup = popup
   try {
     const result = await predictFloodProneAreas({
       latitude: Number(event.lngLat.lat.toFixed(6)),
@@ -1278,6 +1282,8 @@ async function openPlaceReport(event) {
   } catch (error) {
     const offLand = province === null
     fillPlaceReport(content, province, null, offLand ? '' : (error instanceof Error ? error.message : 'The flood models could not be reached.'))
+  } finally {
+    if (placePopup === popup && popup.isOpen()) popup.setLngLat(event.lngLat)
   }
 }
 
