@@ -108,7 +108,8 @@ async def rain_flood_chunk_image(chunk_id: str, rain_mm: float | None = Query(de
         else:
             # What-if scenario: the same rain everywhere (wettest day = rain_mm, three days = twice that).
             corners = [(116.0, 4.0), (128.0, 4.0), (128.0, 22.0), (116.0, 22.0)]
-            samples = [{"longitude": lon, "latitude": lat, "rainfall_24h_mm": rain_mm, "rainfall_72h_mm": rain_mm * 2} for lon, lat in corners]
+            samples = [{"longitude": lon, "latitude": lat, "rainfall_24h_mm": rain_mm, "rainfall_72h_mm": rain_mm * 2,
+                        "model_rain_24h_mm": rain_mm, "model_rain_72h_mm": rain_mm * 2} for lon, lat in corners]
             fetched_at = f"scenario-{rain_mm:g}"
         image = await run_in_threadpool(rain_flood_service.render_forecast, chunk_id, samples, fetched_at)
     except SusceptibilityUnavailableError as error:

@@ -99,8 +99,8 @@ def forecast_probability(chunk_id: str, samples: list[dict[str, Any]]) -> tuple[
     features = np.load(path)
     size = land.shape[0]
     west, south = (int(part[:-1]) for part in chunk_id.split("_"))
-    wettest = _rain_grid(samples, "rainfall_24h_mm", west, south, size)
-    total = _rain_grid(samples, "rainfall_72h_mm", west, south, size)
+    wettest = _rain_grid(samples, _rain_key(samples, "24h"), west, south, size)
+    total = _rain_grid(samples, _rain_key(samples, "72h"), west, south, size)
     probability = np.zeros(land.shape, dtype=np.float32)
     dry = np.zeros(land.shape, dtype=np.float32)
     rows, columns = np.nonzero(land)
@@ -132,9 +132,15 @@ def point_prediction(longitude: float, latitude: float, samples: list[dict[str, 
             "wettest_24h_mm": round(float(wettest[row, column]), 1), "on_land": bool(land[row, column])}
 
 
+def _rain_key(samples: list[dict[str, Any]], name: str) -> str:
+    """The last-72-hours-plus-next-24-hours rain the network was trained on; older cached samples fall back to the forecast."""
+    model_key = f"model_rain_{name}_mm"
+    return model_key if samples and model_key in samples[0] else f"rainfall_{name}_mm"
+
+
 def _peak_rain(chunk_id: str, samples: list[dict[str, Any]]) -> float:
     west, south = (int(part[:-1]) for part in chunk_id.split("_"))
-    return float(_rain_grid(samples, "rainfall_24h_mm", west, south, 48).max())
+    return float(_rain_grid(samples, _rain_key(samples, "24h"), west, south, 48).max())
 
 
 def _empty_png() -> bytes:

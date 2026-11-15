@@ -74,6 +74,9 @@ async def _build_province_forecast() -> dict[str, Any]:
                 "pressure_msl_hpa": forecast["pressure_msl_hpa"],
                 "rainfall_24h_mm": forecast["rainfall_24h_mm"],
                 "rainfall_72h_mm": forecast["rainfall_72h_mm"],
+                "past_72h_mm": forecast["past_72h_mm"],
+                "model_rain_24h_mm": forecast["model_rain_24h_mm"],
+                "model_rain_72h_mm": forecast["model_rain_72h_mm"],
                 "elevation_m": forecast["elevation_m"],
             })
 

@@ -20,6 +20,7 @@ FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 CACHE_TTL_SECONDS = 3600
 FETCH_CONCURRENCY = 2
 FETCH_ATTEMPTS = 4
+PAST_HOURS = 72
 RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 GRID_STEP_DEGREES = 0.5
 GRID_WEST = 116.0
@@ -142,6 +143,14 @@ def _parse_location_forecast(
         pressure_values = [float(value) for value in pressures]
         speeds = [float(value) for value in wind_speeds]
         directions = [float(value) for value in wind_directions]
+        # Open-Meteo returns the last PAST_HOURS of rain (model analysis) before the 72 forecast hours.
+        past_rain = values[:-72] if len(values) > 72 else []
+        if past_rain:
+            values, temperature_values, pressure_values = values[-72:], temperature_values[-72:], pressure_values[-72:]
+            speeds, directions, times = speeds[-72:], directions[-72:], times[-72:]
+        flood_window = past_rain[-48:] + values[:24]
+        model_rain_24h = max(sum(flood_window[start:start + 24]) for start in range(max(1, len(flood_window) - 23)))
+        model_rain_72h = sum(flood_window)
         if any(not math.isfinite(value) or value < 0 for value in values):
             raise ValueError("Hourly forecast contains invalid precipitation.")
         if any(not math.isfinite(value) or not -100 <= value <= 70 for value in temperature_values):
@@ -175,6 +184,9 @@ def _parse_location_forecast(
         "pressure_msl_hpa": round(pressure_values[0], 1),
         "rainfall_24h_mm": round(rainfall_24h, 1),
         "rainfall_72h_mm": round(rainfall_72h, 1),
+        "past_72h_mm": round(sum(past_rain), 1),
+        "model_rain_24h_mm": round(model_rain_24h, 1),
+        "model_rain_72h_mm": round(model_rain_72h, 1),
         "wind_speed_10m_mps": [round(speed / 3.6, 1) for speed in speeds],
         "wind_direction_10m_deg": [round(direction % 360, 1) for direction in directions],
         "elevation_m": round(elevation_m, 1) if elevation_m is not None else None,
@@ -192,6 +204,7 @@ async def _fetch_forecast_batch(
             "precipitation,temperature_2m,pressure_msl,"
             "wind_speed_10m,wind_direction_10m"
         ),
+        "past_hours": PAST_HOURS,
         "forecast_hours": 72,
         "timezone": "UTC",
     }
@@ -298,6 +311,9 @@ async def _build_flood_screening() -> dict[str, Any]:
                 "pressure_msl_hpa": forecast["pressure_msl_hpa"],
                 "rainfall_24h_mm": forecast["rainfall_24h_mm"],
                 "rainfall_72h_mm": forecast["rainfall_72h_mm"],
+                "past_72h_mm": forecast["past_72h_mm"],
+                "model_rain_24h_mm": forecast["model_rain_24h_mm"],
+                "model_rain_72h_mm": forecast["model_rain_72h_mm"],
                 "elevation_m": forecast["elevation_m"],
                 "screening_level": level,
             },
