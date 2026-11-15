@@ -7,6 +7,7 @@ from app.api.routes.analyze import router as analyze_router
 from app.api.routes.health import router as health_router
 from app.api.routes.parcels import router as parcels_router
 from app.api.routes.reports import router as reports_router
+from app.api.routes.scan import router as scan_router
 from app.api.routes.scenes import router as scenes_router
 from app.api.routes.summary import router as summary_router
 from app.api.routes.weather import router as weather_router
@@ -36,3 +37,4 @@ app.include_router(reports_router, prefix="/api/v1")
 app.include_router(scenes_router, prefix="/api/v1")
 app.include_router(weather_router, prefix="/api/v1")
 app.include_router(flood_model_router, prefix="/api/v1")
+app.include_router(scan_router, prefix="/api/v1")

@@ -14,6 +14,7 @@ from app.integrations.open_meteo_weather_client import (
     get_current_weather,
     search_locations,
 )
+from app.integrations.province_forecast_client import get_province_forecast
 from app.integrations.flood_screening_client import (
     FloodScreeningError,
     get_nationwide_flood_screening,
@@ -106,6 +107,15 @@ async def read_flood_screening() -> dict[str, Any]:
     """Return a nationwide, forecast-rainfall screening layer."""
     try:
         return await get_nationwide_flood_screening()
+    except FloodScreeningError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+
+@router.get("/province-forecast")
+async def read_province_forecast() -> dict[str, Any]:
+    """Return the real forecast aggregated by province boundary (replaces coarse grid cells on the map)."""
+    try:
+        return await get_province_forecast()
     except FloodScreeningError as error:
         raise HTTPException(status_code=502, detail=str(error)) from error
 

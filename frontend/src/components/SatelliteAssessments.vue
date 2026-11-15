@@ -29,7 +29,10 @@
             </td>
             <td data-label="Imagery">
               Radar {{ record.observations.sentinel_1.datetime.slice(0, 10) }}<br>
-              Optical {{ record.observations.sentinel_2.datetime.slice(0, 10) }} · {{ record.observations.sentinel_2.cloud_cover_percent }}% cloud
+              <template v-if="record.observations.sentinel_2.used !== false && record.observations.sentinel_2.datetime">
+                Optical {{ record.observations.sentinel_2.datetime.slice(0, 10) }} · {{ record.observations.sentinel_2.cloud_cover_percent }}% cloud
+              </template>
+              <template v-else>Radar only (cloud)</template>
             </td>
             <td data-label="Flooded land">
               <strong>{{ record.statistics.flooded_area_km2 }} km²</strong>

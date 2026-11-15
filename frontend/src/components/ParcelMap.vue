@@ -12,12 +12,21 @@
       <summary>Map layers <span aria-hidden="true">＋</span></summary>
       <div class="map-tools-content">
         <p class="map-tools-heading">WEATHER &amp; FLOOD MONITORING</p>
-        <label class="weather-layer-select">
-          Weather type
-          <select v-model="selectedWeatherLayer" aria-label="Weather display" @change="updateWeatherLayer">
-            <option v-for="layer in weatherLayers" :key="layer.value" :value="layer.value">{{ layer.label }}</option>
-          </select>
-        </label>
+        <div class="weather-type-grid" role="radiogroup" aria-label="Weather display">
+          <button
+            v-for="layer in weatherLayers"
+            :key="layer.value"
+            type="button"
+            role="radio"
+            class="weather-type-chip"
+            :class="{ 'weather-type-chip-active': selectedWeatherLayer === layer.value }"
+            :aria-checked="selectedWeatherLayer === layer.value"
+            @click="selectWeatherLayer(layer.value)"
+          >
+            <span class="weather-type-icon" aria-hidden="true">{{ layer.icon }}</span>
+            <span>{{ layer.short }}</span>
+          </button>
+        </div>
         <p class="weather-layer-description">{{ selectedWeatherLayerDescription }}</p>
         <p v-if="isGridWeatherMode && floodScreeningStatus" class="parcel-map-status" role="status" aria-live="polite">{{ floodScreeningStatus }}</p>
         <button
@@ -29,6 +38,72 @@
         >
           {{ isLoadingFloodScreening ? 'Refreshing forecast…' : isRainfallScreeningActive ? 'Refresh rainfall screening' : 'Refresh weather forecast' }}
         </button>
+
+        <details class="map-tools-group susceptibility-group" open>
+          <summary>
+            Flood-prone areas · prediction
+            <span class="ai-flood-badge" :class="susceptibilityStatus?.ready ? 'ai-flood-badge-ready' : 'ai-flood-badge-off'">
+              {{ susceptibilityStatus?.ready ? 'Model ready' : 'Not ready' }}
+            </span>
+          </summary>
+          <div class="map-tools-group-content">
+            <p class="parcel-map-attribution">
+              A MindSpore model learned where water collects from real terrain (Copernicus DEM) and 36 years of Landsat water history,
+              so it works anywhere in the Philippines. Combined with the real rainfall forecast for the province.
+            </p>
+            <p v-if="susceptibilityStatus && !susceptibilityStatus.ready" class="parcel-map-status" role="status">{{ susceptibilityStatus.reason }}</p>
+            <p v-else-if="susceptibilityStatus?.heldout_province_auc" class="parcel-map-status">
+              Held-out provinces: AUC {{ susceptibilityStatus.heldout_province_auc.toFixed(2) }}
+              <template v-if="susceptibilityStatus.observed_flood_validation"> · vs satellite-observed floods: AUC {{ susceptibilityStatus.observed_flood_validation.auc.toFixed(2) }}</template>
+            </p>
+            <button
+              class="parcel-refresh-button"
+              type="button"
+              :disabled="isPredicting || !susceptibilityStatus?.ready"
+              @click="runSusceptibility"
+            >
+              {{ isPredicting ? 'Reading terrain & running MindSpore…' : 'Show flood-prone areas here' }}
+            </button>
+            <p v-if="susceptibilityError" class="parcel-map-status ai-flood-error" role="alert">{{ susceptibilityError }}</p>
+            <div v-if="susceptibilityResult" class="ai-flood-result susceptibility-result" role="status">
+              <strong>{{ susceptibilityResult.statistics.high_km2 }} km² high · {{ susceptibilityResult.statistics.moderate_km2 }} km² moderate susceptibility</strong>
+              <span>of {{ susceptibilityResult.statistics.land_km2 }} km² land in this {{ susceptibilityResult.statistics.tile_km2 }} km² area</span>
+              <span v-if="susceptibilityResult.forecast">
+                Forecast for {{ susceptibilityResult.forecast.province }}: {{ susceptibilityResult.forecast.rainfall_24h_mm }} mm in the wettest 24 h,
+                {{ susceptibilityResult.forecast.rainfall_72h_mm }} mm over 72 h
+              </span>
+              <small><b>{{ susceptibilityResult.outlook }}</b></small>
+              <small>Red = high, amber = moderate susceptibility. A relative score from terrain and water history, not a flood warning or a measured depth.</small>
+              <button class="parcel-refresh-button" type="button" @click="clearSusceptibility">Clear overlay</button>
+            </div>
+          </div>
+        </details>
+
+        <details class="map-tools-group scan-group" open>
+          <summary>
+            Nationwide satellite scan
+            <span class="ai-flood-badge" :class="scanSummary?.tiles_scanned ? 'ai-flood-badge-ready' : 'ai-flood-badge-off'">
+              {{ scanSummary ? `${(scanSummary.coverage_fraction * 100).toFixed(1)}% scanned` : 'loading' }}
+            </span>
+          </summary>
+          <div class="map-tools-group-content">
+            <p v-if="scanSummary?.tiles_scanned" class="parcel-map-status" role="status">
+              {{ scanSummary.tiles_scanned.toLocaleString() }} of {{ scanSummary.tiles_total.toLocaleString() }} Philippine land tiles scanned by MindSpore ·
+              {{ scanSummary.flooded_km2.toLocaleString() }} km² of flood water detected in {{ scanSummary.tiles_with_flooding }} tiles ·
+              Sentinel-1 passes {{ scanSummary.radar_dates[0] }} to {{ scanSummary.radar_dates[1] }}
+            </p>
+            <p v-else class="parcel-map-status" role="status">No tiles scanned yet. Scans run from the backend job (see README).</p>
+            <label class="map-layer-toggle">
+              <input v-model="showScan" type="checkbox" @change="refreshScanOverlays">
+              <span class="scan-swatch"></span>
+              Show detected floods (scanned tiles)
+            </label>
+            <small class="parcel-map-attribution">
+              Newest real Sentinel-1 radar pass per tile. Areas not yet scanned are blank, not “no flood”.
+              Radar-only tiles (cloud cover) are less accurate.
+            </small>
+          </div>
+        </details>
 
         <details class="map-tools-group ai-flood-group" open>
           <summary>
@@ -43,8 +118,10 @@
               (or the map centre). Experimental: not an official flood boundary.
             </p>
             <p v-if="aiModelStatus && !aiModelStatus.ready" class="parcel-map-status" role="status">{{ aiModelStatus.reason }}</p>
-            <p v-else-if="aiModelStatus?.validation" class="parcel-map-status">
-              Trained on human-labelled Sen1Floods11 floods. Unseen test floods: IoU {{ (aiModelStatus.test?.test ?? aiModelStatus.validation).iou.toFixed(2) }} · F1 {{ (aiModelStatus.test?.test ?? aiModelStatus.validation).f1.toFixed(2) }}
+            <p v-else-if="aiModelStatus?.test_metrics" class="parcel-map-status">
+              Trained on human-labelled Sen1Floods11 floods. Unseen test floods, IoU:
+              {{ aiModelStatus.test_metrics.radar_optical.iou.toFixed(2) }} with optical imagery ·
+              {{ aiModelStatus.test_metrics.radar_only.iou.toFixed(2) }} radar-only (under cloud)
             </p>
             <label class="weather-layer-select">
               Event date (optional, for past floods)
@@ -78,7 +155,9 @@
                 <small>Field outlines: Fields of The World {{ aiResult.field_summary.field_year }} (CC-BY-4.0), detected from Sentinel-2, not legal parcels. Click a field for details. Classes are by flooded share (60%+, 30–60%, 10–30%), a prototype display scale, not a damage grade.</small>
               </div>
               <small>Saved as assessment #{{ aiResult.assessment_id }} · see Dashboard and Report center.</small>
-              <small>Radar {{ aiResult.observations.sentinel_1.datetime.slice(0, 10) }} · Optical {{ aiResult.observations.sentinel_2.datetime.slice(0, 10) }} ({{ aiResult.observations.sentinel_2.cloud_cover_percent }}% cloud)</small>
+              <small>Radar {{ aiResult.observations.sentinel_1.datetime.slice(0, 10) }} ·
+                <template v-if="aiResult.observations.sentinel_2.used">Optical {{ aiResult.observations.sentinel_2.datetime.slice(0, 10) }} ({{ aiResult.observations.sentinel_2.cloud_cover_percent }}% cloud)</template>
+                <template v-else>no usable optical scene (radar only)</template></small>
               <small v-for="warning in aiResult.warnings" :key="warning">⚠ {{ warning }}</small>
               <button class="parcel-refresh-button" type="button" @click="clearFloodOverlay">Clear overlay</button>
             </div>
@@ -188,10 +267,10 @@
         <span v-if="showRegions"><i class="region-legend-mark"></i> Administrative region · reference only</span>
         <span v-if="showParcels"><i class="parcel-legend-mark"></i> Imported farm parcel</span>
         <span v-if="showDamage && hasDamageFeatures"><i class="damage-legend-mark"></i> Completed flood assessment</span>
-        <span v-if="isRainfallScreeningActive"><i class="flood-screening-legend-mark"></i> Rainfall screening: lower (green) · watch (amber) · elevated (red) · prototype</span>
+        <span v-if="isRainfallScreeningActive"><i class="flood-screening-legend-mark"></i> Rainfall screening by province: lower (green) · watch (amber) · elevated (red)</span>
         <span v-if="isSatelliteImageActive"><i class="satellite-image-legend-mark"></i> Live cloud-only Himawari-9 imagery</span>
         <span v-if="isWindForecastActive"><i class="wind-forecast-legend-mark"></i> Forecast wind direction and speed · Open-Meteo</span>
-        <span v-if="isWeatherGridActive"><i class="weather-legend-mark"></i> {{ selectedWeatherLayerLabel }} · Open-Meteo forecast grid</span>
+        <span v-if="isWeatherGridActive"><i class="weather-legend-mark"></i> {{ selectedWeatherLayerLabel }} · by province · Open-Meteo forecast</span>
       </div>
       <div v-if="isWeatherGridActive" class="weather-map-scale" :class="`weather-scale-${selectedWeatherLayer}`">
         <strong>{{ weatherScaleTitle }}</strong>
@@ -208,7 +287,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import mapboxgl from 'mapbox-gl'
-import { analyzeFloodArea, fetchDamageMap, fetchFloodModelStatus, fetchFloodScreening, fetchHimawariTileFrames, fetchParcelMap, fetchWindForecast, himawariTileTemplate } from '../api/client'
+import { analyzeFloodArea, fetchDamageMap, fetchFloodModelStatus, fetchHimawariTileFrames, fetchParcelMap, fetchProvinceForecast, fetchScanOverlays, fetchScanSummary, fetchSusceptibilityStatus, fetchWindForecast, himawariTileTemplate, predictFloodProneAreas, scanOverlayUrl } from '../api/client'
 import { severityColors } from '../map/severity'
 
 const props = defineProps({
@@ -217,12 +296,12 @@ const props = defineProps({
 const emit = defineEmits(['location-selected'])
 const mapToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN
 const weatherLayers = [
-  { value: 'rainfall', label: 'Rainfall screening', description: '72-hour model rainfall and low-elevation screening.' },
-  { value: 'clouds', label: 'Clouds · live satellite', description: 'Recent JMA Himawari cloud imagery with playback.' },
-  { value: 'wind', label: 'Wind · 72-hour forecast', description: 'Animated Open-Meteo wind speed and direction forecast.' },
-  { value: 'precipitation', label: 'Precipitation · next 6 hours', description: 'Open-Meteo forecast precipitation total for the next six hours.' },
-  { value: 'temperature', label: 'Temperature · forecast', description: 'Open-Meteo 2 m air temperature for the first forecast hour.' },
-  { value: 'pressure', label: 'Pressure · forecast', description: 'Open-Meteo mean sea-level pressure for the first forecast hour.' },
+  { value: 'rainfall', short: 'Rain watch', icon: '🌧', label: 'Rainfall screening', description: 'Wettest 24 hours in the next 72 h, by province. Screening only, not a flood prediction.' },
+  { value: 'clouds', short: 'Clouds', icon: '☁', label: 'Clouds · live satellite', description: 'Live JMA Himawari-9 cloud imagery with playback.' },
+  { value: 'wind', short: 'Wind', icon: '💨', label: 'Wind · 72-hour forecast', description: 'Animated wind speed and direction forecast.' },
+  { value: 'precipitation', short: 'Next 6 h', icon: '💧', label: 'Precipitation · next 6 hours', description: 'Forecast rain total for the next six hours, by province.' },
+  { value: 'temperature', short: 'Temperature', icon: '🌡', label: 'Temperature · forecast', description: 'Forecast air temperature at 2 m, by province.' },
+  { value: 'pressure', short: 'Pressure', icon: '◎', label: 'Pressure · forecast', description: 'Forecast mean sea-level pressure, by province.' },
 ]
 const mapElement = ref(null)
 const windCanvas = ref(null)
@@ -263,7 +342,7 @@ const isGridWeatherMode = computed(() => (
   isRainfallScreeningActive.value || isWeatherGridActive.value
 ))
 const floodScreeningStatus = computed(() => {
-  if (isLoadingFloodScreening.value) return 'Loading nationwide model forecast grid…'
+  if (isLoadingFloodScreening.value) return 'Loading the province forecast…'
   if (floodScreeningError.value) return floodScreeningError.value
   const collection = floodScreeningCollection.value
   if (!collection) return ''
@@ -273,15 +352,12 @@ const floodScreeningStatus = computed(() => {
     minute: '2-digit',
   })
   if (isRainfallScreeningActive.value) {
-    const screeningCells = collection.features.filter((feature) => (
+    const screeningAreas = collection.features.filter((feature) => (
       ['watch', 'elevated'].includes(feature.properties?.screening_level)
     )).length
-    return `${screeningCells} watch/elevated cells · updated ${updatedAt} · forecast refreshes hourly`
+    return `${screeningAreas} of ${collection.features.length} provinces on watch or elevated · updated ${updatedAt}`
   }
-  const gridCells = collection.features.length
-  const resolution = collection.grid_resolution_degrees
-  const forecastStart = collection.features[0]?.properties?.forecast_start
-  return `${gridCells} forecast cells${resolution ? ` · ${resolution}° grid` : ''} · from ${forecastStart} UTC · updated ${updatedAt}`
+  return `${collection.features.length} provinces · Open-Meteo forecast · updated ${updatedAt}`
 })
 const selectedWeatherLayerLabel = computed(() => (
   weatherLayers.find((layer) => layer.value === selectedWeatherLayer.value)?.label ?? 'weather'
@@ -312,7 +388,104 @@ const aiResult = ref(null)
 const aiAnalysisError = ref('')
 const isAnalyzingFlood = ref(false)
 const todayIso = new Date().toISOString().slice(0, 10)
+const SUSCEPTIBILITY_ID = 'ai-susceptibility-overlay'
+const susceptibilityStatus = ref(null)
+const susceptibilityResult = ref(null)
+const susceptibilityError = ref('')
+const isPredicting = ref(false)
+
+function clearSusceptibility() {
+  if (map?.getLayer(SUSCEPTIBILITY_ID)) map.removeLayer(SUSCEPTIBILITY_ID)
+  if (map?.getSource(SUSCEPTIBILITY_ID)) map.removeSource(SUSCEPTIBILITY_ID)
+  susceptibilityResult.value = null
+}
+
+async function loadSusceptibilityStatus() {
+  try {
+    susceptibilityStatus.value = await fetchSusceptibilityStatus()
+  } catch (error) {
+    susceptibilityStatus.value = { ready: false, reason: error instanceof Error ? error.message : 'Status unavailable.' }
+  }
+}
+
+async function runSusceptibility() {
+  if (!map || isPredicting.value) return
+  const target = selectionMarker?.getLngLat() ?? map.getCenter()
+  isPredicting.value = true
+  susceptibilityError.value = ''
+  try {
+    const result = await predictFloodProneAreas({
+      latitude: Number(target.lat.toFixed(6)),
+      longitude: Number(target.lng.toFixed(6)),
+    })
+    if (!map) return
+    clearSusceptibility()
+    map.addSource(SUSCEPTIBILITY_ID, { type: 'image', url: result.overlay.image, coordinates: result.overlay.coordinates })
+    map.addLayer({ id: SUSCEPTIBILITY_ID, type: 'raster', source: SUSCEPTIBILITY_ID, paint: { 'raster-opacity': 0.9, 'raster-fade-duration': 0 } })
+    const longitudes = result.overlay.coordinates.map((corner) => corner[0])
+    const latitudes = result.overlay.coordinates.map((corner) => corner[1])
+    map.fitBounds(
+      [[Math.min(...longitudes), Math.min(...latitudes)], [Math.max(...longitudes), Math.max(...latitudes)]],
+      { padding: 40, duration: 1200 },
+    )
+    susceptibilityResult.value = result
+  } catch (error) {
+    susceptibilityError.value = error instanceof Error ? error.message : 'Prediction failed.'
+  } finally {
+    isPredicting.value = false
+  }
+}
+
 const AI_OVERLAY_ID = 'ai-flood-overlay'
+const scanSummary = ref(null)
+const showScan = ref(true)
+const scanTileIds = new Set()
+let scanRefreshTimer
+let scanRequestSequence = 0
+
+async function loadScanSummary() {
+  try {
+    scanSummary.value = await fetchScanSummary()
+  } catch {
+    scanSummary.value = { tiles_scanned: 0, tiles_total: 0, coverage_fraction: 0 }
+  }
+}
+
+function removeScanTile(tileId) {
+  const layerId = `scan-${tileId}`
+  if (map?.getLayer(layerId)) map.removeLayer(layerId)
+  if (map?.getSource(layerId)) map.removeSource(layerId)
+  scanTileIds.delete(tileId)
+}
+
+async function refreshScanOverlays() {
+  if (!map) return
+  const currentRequest = ++scanRequestSequence
+  if (!showScan.value) {
+    for (const tileId of [...scanTileIds]) removeScanTile(tileId)
+    return
+  }
+  try {
+    const { tiles } = await fetchScanOverlays(map.getBounds())
+    if (currentRequest !== scanRequestSequence || !map) return
+    const wanted = new Set(tiles.map((tile) => tile.tile_id))
+    for (const tileId of [...scanTileIds]) if (!wanted.has(tileId)) removeScanTile(tileId)
+    for (const tile of tiles) {
+      if (scanTileIds.has(tile.tile_id)) continue
+      const layerId = `scan-${tile.tile_id}`
+      map.addSource(layerId, { type: 'image', url: scanOverlayUrl(tile.tile_id), coordinates: tile.corners })
+      map.addLayer({ id: layerId, type: 'raster', source: layerId, paint: { 'raster-opacity': 0.85, 'raster-fade-duration': 0 } })
+      scanTileIds.add(tile.tile_id)
+    }
+  } catch {
+    // The scan layer is optional; the rest of the map keeps working.
+  }
+}
+
+function scheduleScanRefresh() {
+  window.clearTimeout(scanRefreshTimer)
+  scanRefreshTimer = window.setTimeout(() => void refreshScanOverlays(), 450)
+}
 const AI_FIELDS_ID = 'ai-flood-fields'
 const AI_FIELDS_FILL_ID = 'ai-flood-fields-fill'
 const AI_FIELDS_OUTLINE_ID = 'ai-flood-fields-outline'
@@ -567,10 +740,17 @@ function setRegionVisibility() {
   setLayerVisibility('admin-region-outline', showRegions.value)
 }
 
+function selectWeatherLayer(value) {
+  if (selectedWeatherLayer.value === value) return
+  selectedWeatherLayer.value = value
+  updateWeatherLayer()
+}
+
 function updateWeatherLayer() {
   const isGridMode = isGridWeatherMode.value
   setLayerVisibility('flood-screening-fill', isGridMode)
   setLayerVisibility('flood-screening-outline', isGridMode)
+  setLayerVisibility('flood-screening-hover', isGridMode)
   setFloodScreeningDisplay()
   setSatelliteImageVisibility()
   setWindForecastVisibility()
@@ -753,12 +933,20 @@ function addFloodScreeningLayer(collection) {
     id: 'flood-screening-outline',
     type: 'line',
     source: 'flood-screening',
-    layout: { visibility: isGridWeatherMode.value ? 'visible' : 'none' },
+    layout: { visibility: isGridWeatherMode.value ? 'visible' : 'none', 'line-join': 'round' },
     paint: {
       'line-color': '#ffffff',
-      'line-width': 0.35,
-      'line-opacity': 0.55,
+      'line-width': ['interpolate', ['linear'], ['zoom'], 4, 0.6, 9, 1.6],
+      'line-opacity': 0.85,
     },
+  }, 'admin-region-outline')
+  map.addLayer({
+    id: 'flood-screening-hover',
+    type: 'line',
+    source: 'flood-screening',
+    filter: ['==', ['get', 'name'], ''],
+    layout: { visibility: isGridWeatherMode.value ? 'visible' : 'none', 'line-join': 'round' },
+    paint: { 'line-color': '#12372a', 'line-width': 2.2, 'line-opacity': 0.9 },
   }, 'admin-region-outline')
   map.on('click', 'flood-screening-fill', (event) => {
     const feature = event.features?.[0]
@@ -767,38 +955,42 @@ function addFloodScreeningLayer(collection) {
     const properties = feature.properties ?? {}
     const content = document.createElement('div')
     const heading = document.createElement('strong')
-    heading.textContent = selectedWeatherLayer.value === 'rainfall'
-      ? `${properties.screening_level === 'elevated' ? 'Higher' : properties.screening_level === 'watch' ? 'Watch' : 'Lower'} screening level`
-      : `${selectedWeatherLayerLabel.value} forecast`
+    heading.textContent = properties.name ?? 'Province'
     content.append(heading)
+    const level = properties.screening_level === 'elevated' ? 'Elevated' : properties.screening_level === 'watch' ? 'Watch' : 'Lower'
     const details = selectedWeatherLayer.value === 'temperature'
-      ? [['Air temperature (first forecast hour)', `${Number(properties.temperature_2m_c).toFixed(1)} °C`]]
+      ? [['Air temperature', `${Number(properties.temperature_2m_c).toFixed(1)} °C`]]
       : selectedWeatherLayer.value === 'precipitation'
-        ? [['Precipitation (next 6 hours)', `${Number(properties.precipitation_6h_mm).toFixed(1)} mm`]]
+        ? [['Rain, next 6 hours', `${Number(properties.precipitation_6h_mm).toFixed(1)} mm`]]
         : selectedWeatherLayer.value === 'pressure'
-          ? [['Mean sea-level pressure (first forecast hour)', `${Number(properties.pressure_msl_hpa).toFixed(1)} hPa`]]
+          ? [['Sea-level pressure', `${Number(properties.pressure_msl_hpa).toFixed(1)} hPa`]]
           : [
-              ['Peak 24-hour rain (next 72 h)', `${Number(properties.rainfall_24h_mm).toFixed(1)} mm`],
-              ['Forecast rain (next 72 h)', `${Number(properties.rainfall_72h_mm).toFixed(1)} mm`],
-              ['Model elevation', properties.elevation_m == null ? 'Unavailable' : `${Number(properties.elevation_m).toFixed(0)} m`],
+              ['Screening level', level],
+              ['Wettest 24 h (next 72 h)', `${Number(properties.rainfall_24h_mm).toFixed(1)} mm`],
+              ['Rain, next 72 h', `${Number(properties.rainfall_72h_mm).toFixed(1)} mm`],
             ]
-    for (const [label, value] of [...details, ['Forecast time (UTC)', properties.forecast_start]]) {
+    for (const [label, value] of [...details, ['Forecast from (UTC)', properties.forecast_start]]) {
       const detail = document.createElement('p')
       detail.textContent = `${label}: ${value}`
       content.append(detail)
     }
     const note = document.createElement('small')
-    note.textContent = selectedWeatherLayer.value === 'rainfall'
-      ? 'Coarse prototype screening, not a flood prediction or official warning.'
-      : 'Coarse model forecast grid; not a station observation.'
+    note.textContent = `Open-Meteo model forecast, from ${properties.sample_points} point${Number(properties.sample_points) === 1 ? '' : 's'} in this province. `
+      + (selectedWeatherLayer.value === 'rainfall' ? 'Screening only, not a flood prediction or official warning.' : 'Not a station observation.')
     content.append(note)
     new mapboxgl.Popup({ maxWidth: '18rem' })
       .setLngLat(event.lngLat)
       .setDOMContent(content)
       .addTo(map)
   })
-  map.on('mouseenter', 'flood-screening-fill', () => { map.getCanvas().style.cursor = 'pointer' })
-  map.on('mouseleave', 'flood-screening-fill', () => { map.getCanvas().style.cursor = '' })
+  map.on('mousemove', 'flood-screening-fill', (event) => {
+    map.getCanvas().style.cursor = 'pointer'
+    map.setFilter('flood-screening-hover', ['==', ['get', 'name'], event.features?.[0]?.properties?.name ?? ''])
+  })
+  map.on('mouseleave', 'flood-screening-fill', () => {
+    map.getCanvas().style.cursor = ''
+    map.setFilter('flood-screening-hover', ['==', ['get', 'name'], ''])
+  })
   setFloodScreeningDisplay()
 }
 
@@ -807,9 +999,9 @@ async function loadFloodScreening() {
   isLoadingFloodScreening.value = true
   floodScreeningError.value = ''
   try {
-    const collection = await fetchFloodScreening()
+    const collection = await fetchProvinceForecast()
     if (currentRequest !== floodScreeningRequestSequence || !map) return
-    if (!collection.features?.length) throw new Error('The forecast returned no map cells.')
+    if (!collection.features?.length) throw new Error('The forecast returned no provinces.')
     floodScreeningCollection.value = collection
     const screeningSource = map.getSource('flood-screening')
     if (screeningSource) screeningSource.setData(collection)
@@ -1098,6 +1290,9 @@ function initializeMapLayers(styleReady = false) {
       drawWindForecast()
     }, 1600)
     map.on('moveend', scheduleParcelRefresh)
+    map.on('moveend', scheduleScanRefresh)
+    void loadScanSummary()
+    void refreshScanOverlays()
     void loadParcels()
     void fetchDamageMap()
       .then((collection) => {
@@ -1133,6 +1328,7 @@ onMounted(() => {
   })
   map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right')
   void loadFloodModelStatus()
+  void loadSusceptibilityStatus()
   map.on('click', (event) => {
     selectionMarker?.remove()
     selectionMarker = new mapboxgl.Marker({ color: '#277ca5' }).setLngLat(event.lngLat).addTo(map)
@@ -1163,6 +1359,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.clearTimeout(moveTimer)
+  window.clearTimeout(scanRefreshTimer)
   window.clearTimeout(mapStartupTimer)
   window.clearInterval(satelliteRefreshTimer)
   window.clearInterval(windForecastTimer)

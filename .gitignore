@@ -13,3 +13,4 @@ frontend/.vercel/
 *.pdf
 ml/artifacts/
 backend/data/
+backend/data/

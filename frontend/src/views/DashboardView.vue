@@ -96,6 +96,8 @@
       </template>
     </section>
 
+    <NationwideScan />
+
     <SatelliteAssessments />
 
     <section class="data-section assessment-status-panel" aria-labelledby="assessment-status-heading">
@@ -158,6 +160,7 @@ import { computed, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { fetchDashboardSummary, fetchFloodScreening } from '../api/client'
 import SatelliteAssessments from '../components/SatelliteAssessments.vue'
+import NationwideScan from '../components/NationwideScan.vue'
 
 const assessment = ref(null)
 const screening = ref(null)

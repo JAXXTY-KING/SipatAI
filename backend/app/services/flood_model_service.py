@@ -88,12 +88,22 @@ def get_model_status() -> dict[str, Any]:
 
     card = read_model_card(checkpoint)
     validation = [entry for entry in card.get("history", []) if entry.get("best")]
+
+    def with_f1(metrics: dict) -> dict:
+        precision, recall = metrics["precision"], metrics["recall"]
+        return {**metrics, "f1": round(2 * precision * recall / (precision + recall), 4) if precision + recall else 0.0}
+
+    def per_mode(split: str) -> dict | None:
+        modes = (card.get("test") or {}).get(split)
+        return {mode: with_f1(metrics) for mode, metrics in modes.items()} if modes else None
+
     status.update(
         ready=True,
         label_source=card.get("label_source"),
         validation=validation[-1]["validation"] if validation and "validation" in validation[-1] else None,
-        test=card.get("test"),
-        decision_threshold=card.get("decision_threshold"),
+        test_metrics=per_mode("test"),
+        unseen_event_metrics=per_mode("bolivia"),
+        decision_thresholds=card.get("decision_thresholds"),
         trained_epochs=len(card.get("history", [])) or None,
     )
     return status
@@ -115,12 +125,22 @@ def _date_ranges(requested: str | None) -> tuple[str, str, str | None]:
     )
 
 
-def _decision_threshold() -> float:
-    """Flood decision threshold recorded in the model card (chosen on validation data)."""
+def _decision_threshold(optical_clear_fraction: float | None = None) -> float:
+    """Flood decision threshold from the model card, chosen on validation data for each input mode.
+
+    Scenes with mostly clear optical imagery use the radar+optical threshold; cloudy scenes rely on
+    radar alone and use the radar-only threshold.
+    """
     from ml.inference.predictor import read_model_card
 
-    value = read_model_card(get_flood_model_checkpoint()).get("decision_threshold", FLOOD_THRESHOLD)
-    return float(value) if 0.0 < float(value) < 1.0 else FLOOD_THRESHOLD
+    card = read_model_card(get_flood_model_checkpoint())
+    thresholds = card.get("decision_thresholds")
+    if thresholds:
+        mostly_clear = optical_clear_fraction is not None and optical_clear_fraction >= 0.5
+        value = thresholds.get("radar_optical" if mostly_clear else "radar_only")
+    else:
+        value = card.get("decision_threshold", FLOOD_THRESHOLD)
+    return float(value) if value is not None and 0.0 < float(value) < 1.0 else FLOOD_THRESHOLD
 
 
 def _overlay_png(probability: np.ndarray, cropland: np.ndarray | None = None, threshold: float = FLOOD_THRESHOLD) -> str:
@@ -188,7 +208,7 @@ def analyze_area(longitude: float, latitude: float, requested_date: str | None) 
         scene = pc.read_scene(
             grid,
             pc.select_sentinel_1(radar_items, radar_target),
-            pc.select_sentinel_2(optical_items),
+            pc.select_sentinel_2(optical_items) if optical_items else None,
         )
     except pc.SceneUnavailableError as error:
         raise FloodModelDataError(str(error)) from error
@@ -198,7 +218,7 @@ def analyze_area(longitude: float, latitude: float, requested_date: str | None) 
     probability = predictor.predict_probability(scene.features)
     permanent_water = _permanent_water_mask(pc, grid, bbox, radar_target)
     probability = np.where(permanent_water, 0.0, probability).astype(np.float32)
-    threshold = _decision_threshold()
+    threshold = _decision_threshold(float(scene.optical_clear.mean()))
     flooded = probability >= threshold
     try:
         cropland = pc.read_cropland(grid)
@@ -207,8 +227,10 @@ def analyze_area(longitude: float, latitude: float, requested_date: str | None) 
     pixel_area_km2 = pc.PIXEL_SIZE_METRES**2 / 1_000_000
     clear_fraction = float(scene.optical_clear.mean())
     warnings = []
-    if clear_fraction < 0.5:
-        warnings.append("Optical imagery over this tile is mostly cloudy; optical channels are unreliable.")
+    if not scene.sentinel_2_id:
+        warnings.append("No usable optical scene was found, so only radar was used (less accurate, but not affected by cloud).")
+    elif clear_fraction < 0.5:
+        warnings.append("Optical imagery over this tile is mostly cloudy; the model relied mainly on radar there.")
     if cropland is None:
         warnings.append("Land cover was unavailable, so flooded cropland could not be calculated.")
 
@@ -246,7 +268,8 @@ def analyze_area(longitude: float, latitude: float, requested_date: str | None) 
             "sentinel_2": {
                 "id": scene.sentinel_2_id,
                 "datetime": scene.sentinel_2_datetime,
-                "cloud_cover_percent": round(scene.sentinel_2_cloud_cover, 1),
+                "used": bool(scene.sentinel_2_id),
+                "cloud_cover_percent": round(scene.sentinel_2_cloud_cover, 1) if scene.sentinel_2_id else None,
                 "clear_pixel_fraction": round(clear_fraction, 3),
             },
         },

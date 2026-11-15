@@ -4,6 +4,11 @@ from fastapi import APIRouter, HTTPException
 from fastapi.concurrency import run_in_threadpool
 
 from app.db.assessment_store import AssessmentRecordNotFound, get_assessment, list_assessments
+from app.services.susceptibility_service import (
+    SusceptibilityUnavailableError,
+    get_susceptibility_status,
+    predict_flood_prone_areas,
+)
 from app.schemas.flood_model import FloodModelRequest
 from app.services.flood_model_service import (
     FloodModelDataError,
@@ -19,6 +24,21 @@ router = APIRouter(prefix="/model", tags=["mindspore"])
 async def model_status() -> dict[str, Any]:
     """Report whether the local MindSpore flood model is installed and trained."""
     return await run_in_threadpool(get_model_status)
+
+
+@router.get("/susceptibility/status")
+async def susceptibility_status() -> dict[str, Any]:
+    """Report whether the MindSpore flood-susceptibility (prediction) model is trained and its measured skill."""
+    return await run_in_threadpool(get_susceptibility_status)
+
+
+@router.post("/susceptibility")
+async def flood_prone_areas(request: FloodModelRequest) -> dict[str, Any]:
+    """Show where floodwater is most likely to collect around a point, with the real rainfall forecast."""
+    try:
+        return await predict_flood_prone_areas(request.longitude, request.latitude)
+    except SusceptibilityUnavailableError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
 
 
 @router.get("/assessments")

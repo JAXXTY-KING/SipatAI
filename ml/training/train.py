@@ -64,13 +64,12 @@ def train_model(arguments: argparse.Namespace) -> None:
     training_data = create_dataset(
         arguments.manifest, arguments.batch_size, shuffle=True, crop_size=arguments.crop_size
     )
-    validation_data = (
-        create_dataset(arguments.val_manifest, arguments.batch_size, shuffle=False)
-        if arguments.val_manifest
-        else None
-    )
+    validation_data = validation_radar = None
+    if arguments.val_manifest:
+        validation_data = create_dataset(arguments.val_manifest, 2, shuffle=False)
+        validation_radar = create_dataset(arguments.val_manifest, 2, shuffle=False, radar_only=True)
     arguments.checkpoint_dir.mkdir(parents=True, exist_ok=True)
-    best_iou = -1.0
+    best_score = -1.0
     history = []
 
     for epoch in range(1, arguments.epochs + 1):
@@ -86,16 +85,23 @@ def train_model(arguments: argparse.Namespace) -> None:
         entry = {"epoch": epoch, "train_loss": mean_loss}
         if validation_data is not None and (epoch % arguments.val_every == 0 or epoch == arguments.epochs):
             metrics = evaluate(network, validation_data)
+            radar_metrics = evaluate(network, validation_radar)
             entry["validation"] = metrics
-            if metrics["iou"] > best_iou:
-                best_iou = metrics["iou"]
+            entry["validation_radar_only"] = radar_metrics
+            score = (metrics["iou"] + radar_metrics["iou"]) / 2
+            if score > best_score:
+                best_score = score
                 save_checkpoint(network, str(arguments.checkpoint_dir / "sipatai-best.ckpt"))
                 entry["best"] = True
-            print(f"Epoch {epoch}/{arguments.epochs}: mean loss {mean_loss:.6f}, validation {metrics}")
+            print(
+                f"Epoch {epoch}/{arguments.epochs}: mean loss {mean_loss:.6f}, "
+                f"validation IoU {metrics['iou']:.4f} (full) / {radar_metrics['iou']:.4f} (radar only)",
+                flush=True,
+            )
             history.append(entry)
             write_model_card(arguments, history)
         else:
-            print(f"Epoch {epoch}/{arguments.epochs}: mean loss {mean_loss:.6f}")
+            print(f"Epoch {epoch}/{arguments.epochs}: mean loss {mean_loss:.6f}", flush=True)
             history.append(entry)
 
     if validation_data is None:

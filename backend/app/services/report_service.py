@@ -155,7 +155,12 @@ def create_satellite_assessment_report(record: dict[str, Any]) -> BytesIO:
         ("Location", f"{record['latitude']:.5f}, {record['longitude']:.5f} (5.12 km tile)"),
         ("Event date requested", record.get("event_date") or "Most recent scenes"),
         ("Sentinel-1 radar", f"{observations['sentinel_1']['datetime'][:10]}  {observations['sentinel_1']['id'][:42]}"),
-        ("Sentinel-2 optical", f"{observations['sentinel_2']['datetime'][:10]}  ({observations['sentinel_2']['cloud_cover_percent']}% cloud)"),
+        (
+            "Sentinel-2 optical",
+            f"{observations['sentinel_2']['datetime'][:10]}  ({observations['sentinel_2']['cloud_cover_percent']}% cloud)"
+            if observations["sentinel_2"].get("used", True) and observations["sentinel_2"].get("datetime")
+            else "Not used (radar only, cloud)",
+        ),
         ("Flooded land", f"{statistics['flooded_area_km2']:,.2f} km2 of {statistics['tile_area_km2']:,.2f} km2 ({statistics['flooded_fraction'] * 100:.1f}%)"),
     ]
     if cropland:

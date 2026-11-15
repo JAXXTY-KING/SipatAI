@@ -12,8 +12,9 @@ from rasterio.enums import Resampling
 from rasterio.transform import Affine
 from rasterio.vrt import WarpedVRT
 from rasterio.warp import transform as transform_coordinates
+from scipy.ndimage import binary_dilation
 
-from ml.configs.model_config import INPUT_SIZE
+from ml.configs.model_config import INPUT_SIZE, OPTICAL_CHANNEL_INDEXES, OPTICAL_MISSING_VALUE
 from ml.data.features import build_feature_stack, normalised_difference
 
 STAC_SEARCH_URL = "https://planetarycomputer.microsoft.com/api/stac/v1/search"
@@ -58,20 +59,20 @@ class SceneStack:
     sentinel_2_cloud_cover: float
 
 
-def make_grid(longitude: float, latitude: float) -> Grid:
-    """Build the model tile grid around a point; one tile covers about 5.12 km square."""
+def make_grid(longitude: float, latitude: float, pixel_size: float = PIXEL_SIZE_METRES) -> Grid:
+    """Build a 512 by 512 tile grid around a point: 5.12 km at the default 10 m, 15.36 km at 30 m."""
     zone = int((longitude + 180.0) // 6.0) + 1
     crs = f"EPSG:{(32600 if latitude >= 0 else 32700) + zone}"
     (x,), (y,) = transform_coordinates("EPSG:4326", crs, [longitude], [latitude])
     height, width = INPUT_SIZE
-    left = round(x / PIXEL_SIZE_METRES) * PIXEL_SIZE_METRES - width * PIXEL_SIZE_METRES / 2
-    top = round(y / PIXEL_SIZE_METRES) * PIXEL_SIZE_METRES + height * PIXEL_SIZE_METRES / 2
-    right = left + width * PIXEL_SIZE_METRES
-    bottom = top - height * PIXEL_SIZE_METRES
+    left = round(x / pixel_size) * pixel_size - width * pixel_size / 2
+    top = round(y / pixel_size) * pixel_size + height * pixel_size / 2
+    right = left + width * pixel_size
+    bottom = top - height * pixel_size
     xs, ys = transform_coordinates(crs, "EPSG:4326", [left, right, right, left], [top, top, bottom, bottom])
     return Grid(
         crs=crs,
-        transform=Affine(PIXEL_SIZE_METRES, 0, left, 0, -PIXEL_SIZE_METRES, top),
+        transform=Affine(pixel_size, 0, left, 0, -pixel_size, top),
         corners=tuple(zip(xs, ys)),
     )
 
@@ -122,8 +123,17 @@ def _signed_href(collection: str, href: str) -> str:
     return f"{href}?{cached[0]}"
 
 
-def _read_band(collection: str, href: str, grid: Grid, resampling: Resampling) -> np.ndarray:
-    """Read one asset onto the model grid; invalid pixels become NaN."""
+def _read_band(
+    collection: str,
+    href: str,
+    grid: Grid,
+    resampling: Resampling,
+    nodata: float | None = None,
+) -> np.ndarray:
+    """Read one asset onto the model grid; invalid pixels become NaN.
+
+    nodata overrides the file's own no-data value, for rasters where 0 is a real measurement.
+    """
     height, width = INPUT_SIZE
     with rasterio.Env(
         GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR",
@@ -132,7 +142,7 @@ def _read_band(collection: str, href: str, grid: Grid, resampling: Resampling) -
         GDAL_HTTP_RETRY_DELAY="1",
     ):
         with rasterio.open(_signed_href(collection, href)) as source:
-            source_nodata = source.nodata
+            source_nodata = nodata if nodata is not None else source.nodata
             with WarpedVRT(
                 source,
                 crs=grid.crs,
@@ -209,12 +219,41 @@ def read_radar(item: dict[str, Any], grid: Grid) -> tuple[np.ndarray, np.ndarray
     return vv, vh
 
 
+def mask_unusable_optical(features: np.ndarray, optical_clear: np.ndarray) -> np.ndarray:
+    """Mark optical channels as missing under cloud, cloud shadow and a 3 pixel margin around them."""
+    unusable = binary_dilation(~optical_clear, iterations=3)
+    for channel in OPTICAL_CHANNEL_INDEXES:
+        features[channel][unusable] = OPTICAL_MISSING_VALUE
+    return features
+
+
 def read_scene(
     grid: Grid,
     sentinel_1_item: dict[str, Any],
-    sentinel_2_item: dict[str, Any],
+    sentinel_2_item: dict[str, Any] | None,
 ) -> SceneStack:
-    """Read a co-registered radar and optical tile and build the six model channels."""
+    """Read a co-registered radar and optical tile and build the six model channels.
+
+    Cloudy optical pixels are marked missing so the model relies on radar there. With no
+    Sentinel-2 item the scene is radar-only, which works under any cloud cover.
+    """
+    if sentinel_2_item is None:
+        vv, vh = read_radar(sentinel_1_item, grid)
+        zero = np.zeros(INPUT_SIZE, dtype=np.float32)
+        optical_clear = np.zeros(INPUT_SIZE, dtype=bool)
+        return SceneStack(
+            features=mask_unusable_optical(build_feature_stack(vv, vh, zero, zero, zero), optical_clear),
+            vv=vv,
+            vh=vh,
+            ndwi=zero,
+            optical_clear=optical_clear,
+            grid=grid,
+            sentinel_1_id=sentinel_1_item["id"],
+            sentinel_1_datetime=sentinel_1_item["properties"]["datetime"],
+            sentinel_2_id="",
+            sentinel_2_datetime="",
+            sentinel_2_cloud_cover=100.0,
+        )
     scale, offset = _reflectance_scale(sentinel_2_item)
     assets = sentinel_2_item["assets"]
     with ThreadPoolExecutor(max_workers=4) as pool:
@@ -230,7 +269,7 @@ def read_scene(
     optical_clear = np.isin(np.nan_to_num(scene_class, nan=0.0), CLEAR_SCL_CLASSES)
     ndwi = np.where(optical_clear, normalised_difference(np.nan_to_num(green), np.nan_to_num(nir)), 0.0)
     return SceneStack(
-        features=build_feature_stack(vv, vh, red, nir, green),
+        features=mask_unusable_optical(build_feature_stack(vv, vh, red, nir, green), optical_clear),
         vv=vv,
         vh=vh,
         ndwi=ndwi.astype(np.float32),

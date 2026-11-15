@@ -60,6 +60,11 @@ export async function fetchFloodScreening() {
   return response.json()
 }
 
+export async function fetchProvinceForecast() {
+  const response = await request('/api/v1/weather/province-forecast')
+  return response.json()
+}
+
 export async function fetchWindForecast() {
   const response = await request('/api/v1/weather/wind-forecast')
   return response.json()
@@ -104,6 +109,40 @@ export async function analyzeFloodArea({ latitude, longitude, date }) {
     body: JSON.stringify({ latitude, longitude, date: date || null }),
   })
   return response.json()
+}
+
+export async function fetchSusceptibilityStatus() {
+  const response = await request('/api/v1/model/susceptibility/status')
+  return response.json()
+}
+
+export async function predictFloodProneAreas({ latitude, longitude }) {
+  const response = await request('/api/v1/model/susceptibility', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ latitude, longitude }),
+  })
+  return response.json()
+}
+
+export async function fetchScanSummary() {
+  const response = await request('/api/v1/scan/summary')
+  return response.json()
+}
+
+export async function fetchScanOverlays(bounds) {
+  const parameters = new URLSearchParams({
+    west: String(bounds.getWest()),
+    south: String(bounds.getSouth()),
+    east: String(bounds.getEast()),
+    north: String(bounds.getNorth()),
+  })
+  const response = await request(`/api/v1/scan/overlays?${parameters}`)
+  return response.json()
+}
+
+export function scanOverlayUrl(tileId) {
+  return `${apiBaseUrl}/api/v1/scan/overlay/${tileId}.png`
 }
 
 export async function fetchSatelliteAssessments() {

@@ -4,17 +4,27 @@ from pathlib import Path
 import mindspore.dataset as ds
 import numpy as np
 
-from ml.configs.model_config import CLASS_COUNT, INPUT_CHANNEL_COUNT, INPUT_SIZE
+from ml.configs.model_config import (
+    CLASS_COUNT,
+    INPUT_CHANNEL_COUNT,
+    INPUT_SIZE,
+    OPTICAL_CHANNEL_INDEXES,
+    OPTICAL_MISSING_VALUE,
+)
 
 POSITIVE_CROP_PROBABILITY = 0.5
+# Training simulates cloud: whole-crop optical loss, or cloud-like blocks of lost optical pixels.
+FULL_OPTICAL_LOSS_PROBABILITY = 0.35
+PATCH_OPTICAL_LOSS_PROBABILITY = 0.25
 
 
 class TiledFloodDataset:
     """Load aligned image and mask tiles from a CSV manifest on demand."""
 
-    def __init__(self, manifest_path: Path, crop_size: int | None = None) -> None:
+    def __init__(self, manifest_path: Path, crop_size: int | None = None, radar_only: bool = False) -> None:
         self.manifest_path = manifest_path.resolve()
         self.crop_size = crop_size
+        self.radar_only = radar_only
         self._random = np.random.default_rng()
         with self.manifest_path.open("r", newline="", encoding="utf-8") as manifest_file:
             rows = list(csv.DictReader(manifest_file))
@@ -61,6 +71,9 @@ class TiledFloodDataset:
                 image_tile = image_tile[(slice(None), *window)]
                 mask_tile = mask_tile[window]
                 image_tile, mask_tile = self._augment(image_tile, mask_tile)
+                image_tile = self._simulate_cloud(image_tile)
+            if self.radar_only:
+                image_tile[list(OPTICAL_CHANNEL_INDEXES)] = OPTICAL_MISSING_VALUE
             return image_tile, mask_tile
         finally:
             for mapping in (image_mapping, mask_mapping):
@@ -76,6 +89,21 @@ class TiledFloodDataset:
         image_tile = np.rot90(image_tile, rotations, axes=(1, 2))
         mask_tile = np.rot90(mask_tile, rotations)
         return np.ascontiguousarray(image_tile), np.ascontiguousarray(mask_tile)
+
+    def _simulate_cloud(self, image_tile: np.ndarray) -> np.ndarray:
+        """Randomly remove optical information so the model also works from radar alone."""
+        draw = self._random.random()
+        optical = list(OPTICAL_CHANNEL_INDEXES)
+        if draw < FULL_OPTICAL_LOSS_PROBABILITY:
+            image_tile[optical] = OPTICAL_MISSING_VALUE
+        elif draw < FULL_OPTICAL_LOSS_PROBABILITY + PATCH_OPTICAL_LOSS_PROBABILITY:
+            size = image_tile.shape[-1]
+            for _ in range(int(self._random.integers(1, 4))):
+                height, width = (int(self._random.integers(size // 5, size // 2 + 1)) for _ in range(2))
+                top = int(self._random.integers(0, size - height + 1))
+                left = int(self._random.integers(0, size - width + 1))
+                image_tile[optical, top : top + height, left : left + width] = OPTICAL_MISSING_VALUE
+        return image_tile
 
     def _crop_origin(self, mask_tile: np.ndarray) -> tuple[int, int]:
         """Choose a crop origin, favouring windows that contain flooded pixels.
@@ -106,17 +134,19 @@ def create_dataset(
     batch_size: int,
     shuffle: bool,
     crop_size: int | None = None,
+    radar_only: bool = False,
 ) -> ds.Dataset:
     """Create a MindSpore Dataset that reads only the current batch of tiles.
 
-    A crop size draws a random square window from each tile (training augmentation only).
+    A crop size draws a random square window from each tile and simulates cloud (training only).
+    radar_only hides all optical channels, to measure performance under full cloud cover.
     """
     if batch_size < 1:
         raise ValueError("Batch size must be at least one.")
     if crop_size is not None and not 0 < crop_size <= min(INPUT_SIZE):
         raise ValueError("Crop size must be positive and no larger than the tile.")
 
-    source = TiledFloodDataset(manifest_path, crop_size)
+    source = TiledFloodDataset(manifest_path, crop_size, radar_only)
     dataset = ds.GeneratorDataset(
         source=source,
         column_names=["image", "mask"],
