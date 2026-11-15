@@ -144,6 +144,25 @@ export function susceptibilityChunkUrl(chunkId) {
   return `${apiBaseUrl}/api/v1/model/susceptibility/chunk/${chunkId}.png`
 }
 
+// Flood-prone pixels recoloured by the real forecast rain over them; the stamp refreshes the cache every 10 minutes.
+export function outlookChunkUrl(chunkId) {
+  return `${apiBaseUrl}/api/v1/model/outlook/chunk/${chunkId}.png?t=${Math.floor(Date.now() / 600000)}`
+}
+
+export function forecastFieldUrl(variable) {
+  return `${apiBaseUrl}/api/v1/weather/field/${variable}.png?t=${Math.floor(Date.now() / 600000)}`
+}
+
+export async function fetchPressureIsobars() {
+  const response = await request('/api/v1/weather/pressure-isobars')
+  return response.json()
+}
+
+export async function fetchLatestImerg() {
+  const response = await request('/api/v1/weather/imerg/latest')
+  return response.json()
+}
+
 export async function fetchScanSummary() {
   const response = await request('/api/v1/scan/summary')
   return response.json()

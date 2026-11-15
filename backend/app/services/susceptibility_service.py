@@ -179,6 +179,31 @@ def province_terrain_shares() -> dict[str, float]:
     return shares
 
 
+_outlook_cache: dict[tuple[str, str], bytes] = {}
+
+
+def render_outlook_chunk(chunk_id: str, samples: list[dict[str, Any]], fetched_at: str) -> bytes:
+    """The flood-prone map of one 1-degree chunk, recoloured by the real forecast rain over each pixel."""
+    import io
+
+    from PIL import Image
+
+    from app.services.weather_fields import outlook_rgba
+
+    key = (chunk_id, fetched_at)
+    if key not in _outlook_cache:
+        path = chunk_png(chunk_id)
+        west, south = (int(part[:-1]) for part in chunk_id.split("_"))
+        base = np.array(Image.open(path).convert("RGBA"))
+        recoloured = outlook_rgba(base, _scores(chunk_id), west, south, samples)
+        buffer = io.BytesIO()
+        Image.fromarray(recoloured, mode="RGBA").save(buffer, format="PNG", optimize=True)
+        for stale in [item for item in _outlook_cache if item[1] != fetched_at]:
+            del _outlook_cache[stale]
+        _outlook_cache[key] = buffer.getvalue()
+    return _outlook_cache[key]
+
+
 async def province_outlook() -> dict[str, Any]:
     """The province forecast with an automatic MindSpore-based flood outlook added to every province."""
     forecast = await get_province_forecast()

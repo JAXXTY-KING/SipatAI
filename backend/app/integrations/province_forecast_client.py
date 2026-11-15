@@ -19,6 +19,7 @@ from app.integrations.flood_screening_client import (
 
 PROVINCES_PATH = Path(__file__).resolve().parents[3] / "frontend" / "public" / "data" / "ph_admin2.geojson"
 _CACHE: tuple[float, dict[str, Any]] | None = None
+_SAMPLES: list[dict[str, Any]] = []
 
 
 @lru_cache(maxsize=1)
@@ -48,7 +49,7 @@ def _province_index(
 
 
 async def _build_province_forecast() -> dict[str, Any]:
-    global _CACHE
+    global _CACHE, _SAMPLES
     features, geometries = _provinces()
     screening = await get_nationwide_flood_screening()
     samples = [dict(item["properties"]) for item in screening["features"]]
@@ -111,8 +112,15 @@ async def _build_province_forecast() -> dict[str, Any]:
         ),
         "features": result_features,
     }
+    _SAMPLES = samples
     _CACHE = (time.monotonic(), result)
     return result
+
+
+async def get_forecast_samples() -> tuple[list[dict[str, Any]], str]:
+    """The real forecast points behind the province forecast (about 0.5 degrees apart) and its fetch time."""
+    forecast = await get_province_forecast()
+    return list(_SAMPLES), forecast["fetched_at"]
 
 
 async def get_province_forecast() -> dict[str, Any]:

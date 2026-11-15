@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.concurrency import run_in_threadpool
 
 from fastapi import Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
 from app.db.assessment_store import AssessmentRecordNotFound, get_assessment, list_assessments
 from app.services.susceptibility_service import (
@@ -13,7 +13,9 @@ from app.services.susceptibility_service import (
     chunk_png,
     chunks_in_bbox,
     get_susceptibility_status,
+    render_outlook_chunk,
 )
+from app.integrations.province_forecast_client import get_forecast_samples
 from app.schemas.flood_model import FloodModelRequest
 from app.services.flood_model_service import (
     FloodModelDataError,
@@ -66,6 +68,19 @@ async def susceptibility_chunk_image(chunk_id: str) -> FileResponse:
         return FileResponse(chunk_png(chunk_id), media_type="image/png", headers={"Cache-Control": "public, max-age=600"})
     except SusceptibilityUnavailableError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@router.get("/outlook/chunk/{chunk_id}.png")
+async def outlook_chunk_image(chunk_id: str) -> Response:
+    """Flood-prone pixels recoloured by the real forecast rain over them (advisory/watch/warning)."""
+    try:
+        samples, fetched_at = await get_forecast_samples()
+        image = await run_in_threadpool(render_outlook_chunk, chunk_id, samples, fetched_at)
+    except SusceptibilityUnavailableError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(status_code=503, detail="Forecast unavailable for the flood outlook.") from error
+    return Response(image, media_type="image/png", headers={"Cache-Control": "public, max-age=300"})
 
 
 @router.get("/assessments")

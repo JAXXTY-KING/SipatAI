@@ -16,6 +16,8 @@ from app.integrations.open_meteo_weather_client import (
 )
 from app.integrations.province_forecast_client import get_province_forecast
 from app.services.susceptibility_service import province_outlook
+from app.services import weather_fields
+from app.integrations.imerg_client import latest_imerg_time
 from app.integrations.flood_screening_client import (
     FloodScreeningError,
     get_nationwide_flood_screening,
@@ -33,6 +35,33 @@ from app.integrations.himawari_client import (
 from app.schemas.weather import WeatherRequest
 
 router = APIRouter(prefix="/weather", tags=["weather context"])
+
+
+@router.get("/field/{variable}.png", include_in_schema=False)
+async def read_forecast_field(variable: str = Path(pattern="^(rain|pressure)$")) -> Response:
+    """Smooth rain (next 6 h) or sea-level pressure picture interpolated from the real forecast points."""
+    try:
+        image, fetched_at = await weather_fields.field_png(variable)
+    except Exception as error:
+        raise HTTPException(status_code=502, detail="The forecast field is unavailable.") from error
+    return Response(image, media_type="image/png", headers={"Cache-Control": "public, max-age=300", "X-Forecast-Fetched": fetched_at})
+
+
+@router.get("/pressure-isobars")
+async def read_pressure_isobars() -> dict[str, Any]:
+    try:
+        return await weather_fields.isobars()
+    except Exception as error:
+        raise HTTPException(status_code=502, detail="The pressure forecast is unavailable.") from error
+
+
+@router.get("/imerg/latest")
+async def read_latest_imerg() -> dict[str, Any]:
+    """Latest NASA IMERG satellite rain-rate scene available from NASA GIBS (real observation, hours old)."""
+    observed = await latest_imerg_time()
+    if observed is None:
+        raise HTTPException(status_code=502, detail="NASA IMERG rain scenes are unavailable.")
+    return observed
 
 
 @router.get("/himawari/tile-frames", include_in_schema=False)
