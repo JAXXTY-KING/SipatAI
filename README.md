@@ -8,7 +8,7 @@ SipatAI is a research prototype we built for the **Huawei ICT Competition 2026â€
 
 ---
 
-## Team
+## Team 
 
 We are students of **Mariano Marcos State University (MMSU)**, Philippines.
 
