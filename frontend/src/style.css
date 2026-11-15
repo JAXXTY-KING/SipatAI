@@ -302,6 +302,20 @@ tbody tr:last-child td { border-bottom: 0; }
 .parcel-map-tools > summary span { color: #5b8b70; font-size: 1rem; }
 .map-tools-content { display: grid; gap: .65rem; padding: .2rem .85rem .85rem; }
 .map-tools-heading { margin: .2rem 0 0; color: #8a9b91; font-size: .62rem; font-weight: 700; letter-spacing: .1em; }
+.map-quick-start { margin: .1rem 0 .3rem; padding-left: 1.1rem; color: var(--ink); font-size: .72rem; line-height: 1.5; }
+.place-report-popup .mapboxgl-popup-content { padding: .85rem .95rem; border-radius: 12px; box-shadow: 0 8px 28px rgba(15, 40, 30, .25); }
+.place-report { display: grid; gap: .35rem; font-size: .78rem; color: #1c2b24; }
+.place-report-title { font-size: .95rem; }
+.place-report h4 { margin: .45rem 0 0; color: #5e7468; font-size: .62rem; letter-spacing: .1em; text-transform: uppercase; }
+.place-report-row { display: flex; justify-content: space-between; gap: .75rem; margin: 0; padding: .18rem 0; border-bottom: 1px solid #eef2ef; }
+.place-report-row span { color: #5e7468; }
+.place-report-row b { text-align: right; font-weight: 600; }
+.place-report-note { margin: 0; color: #4b5d54; line-height: 1.4; }
+.place-report-verdict { padding: .4rem .6rem; border-radius: 8px; font-weight: 700; }
+.place-report-none { background: #e6f2ec; color: #1f6b4c; }
+.place-report-advisory { background: #fbf0c2; color: #7a5b00; }
+.place-report-watch { background: #fde0c4; color: #8a4300; }
+.place-report-warning { background: #f8d4d4; color: #8f1d1d; }
 .map-tools-group { padding-top: .55rem; border-top: 1px solid #edf1ee; }
 .map-tools-group > summary { display: flex; align-items: center; justify-content: space-between; gap: .75rem; color: #52645a; font-size: .75rem; font-weight: 650; cursor: pointer; list-style: none; }
 .map-tools-group > summary::-webkit-details-marker { display: none; }

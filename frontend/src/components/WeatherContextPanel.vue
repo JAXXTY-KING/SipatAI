@@ -2,11 +2,11 @@
   <section class="weather-context" aria-labelledby="weather-title">
     <div class="weather-heading">
       <div>
-        <p class="eyebrow">FIND A PLACE</p>
-        <h2 id="weather-title">Explore local weather</h2>
+        <p class="eyebrow">SEARCH</p>
+        <h2 id="weather-title">Find a place</h2>
       </div>
     </div>
-    <p class="connection-note">Search a city or municipality, or select a point on the map.</p>
+    <p class="connection-note">Type a city or town, or click anywhere on the map. You get the weather and the flood report for that spot.</p>
     <form class="weather-search-form" @submit.prevent="searchLocations">
       <label>
         <span class="visually-hidden">Place name</span>

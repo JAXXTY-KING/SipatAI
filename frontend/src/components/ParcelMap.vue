@@ -11,10 +11,32 @@
     <details v-if="mapToken" class="parcel-map-tools" aria-label="Map layers and data">
       <summary>Map layers <span aria-hidden="true">＋</span></summary>
       <div class="map-tools-content">
-        <p class="map-tools-heading">WEATHER &amp; FLOOD MONITORING</p>
-        <div class="weather-type-grid" role="radiogroup" aria-label="Weather display">
+        <p class="map-tools-heading">HOW TO USE</p>
+        <ol class="map-quick-start">
+          <li>Pick a layer below.</li>
+          <li>Click anywhere on the map for a flood report on that spot.</li>
+          <li>Open “How MindSpore works here” to see what the AI does.</li>
+        </ol>
+        <p class="map-tools-heading">FLOOD PREDICTION</p>
+        <div class="weather-type-grid" role="radiogroup" aria-label="Flood prediction layers">
           <button
-            v-for="layer in weatherLayers"
+            v-for="layer in floodLayers"
+            :key="layer.value"
+            type="button"
+            role="radio"
+            class="weather-type-chip"
+            :class="{ 'weather-type-chip-active': selectedWeatherLayer === layer.value }"
+            :aria-checked="selectedWeatherLayer === layer.value"
+            @click="selectWeatherLayer(layer.value)"
+          >
+            <span class="weather-type-icon" aria-hidden="true">{{ layer.icon }}</span>
+            <span>{{ layer.short }}</span>
+          </button>
+        </div>
+        <p class="map-tools-heading">WEATHER</p>
+        <div class="weather-type-grid" role="radiogroup" aria-label="Weather layers">
+          <button
+            v-for="layer in plainWeatherLayers"
             :key="layer.value"
             type="button"
             role="radio"
@@ -94,7 +116,7 @@
         </details>
 
         <details class="map-tools-group susceptibility-group">
-          <summary>Check flood risk at a place</summary>
+          <summary>Report for the marked spot</summary>
           <div class="map-tools-group-content">
             <p v-if="susceptibilityStatus && !susceptibilityStatus.ready" class="parcel-map-status" role="status">{{ susceptibilityStatus.reason }}</p>
             <button
@@ -103,7 +125,7 @@
               :disabled="isPredicting || !susceptibilityStatus?.ready"
               @click="runSusceptibility"
             >
-              {{ isPredicting ? 'Checking…' : 'Check flood risk at the selected place' }}
+              {{ isPredicting ? 'Checking…' : 'Get a report for the marked spot' }}
             </button>
             <p v-if="susceptibilityError" class="parcel-map-status ai-flood-error" role="alert">{{ susceptibilityError }}</p>
             <div v-if="susceptibilityResult" class="ai-flood-result susceptibility-result" :class="`watch-${susceptibilityResult.watch.level}`" role="status">
@@ -134,15 +156,15 @@
 
         <details class="map-tools-group ai-flood-group">
           <summary>
-            Analyse flood extent (satellite)
+            Scan a spot with satellite radar
             <span class="ai-flood-badge" :class="aiModelStatus?.ready ? 'ai-flood-badge-ready' : 'ai-flood-badge-off'">
               {{ aiModelStatus?.ready ? 'Model ready' : 'Not ready' }}
             </span>
           </summary>
           <div class="map-tools-group-content">
             <p class="parcel-map-attribution">
-              Runs a MindSpore ResNet-50 U-Net on real Sentinel-1 radar and Sentinel-2 optical imagery for a 5 km tile at the selected point
-              (or the map centre). Experimental: not an official flood boundary.
+              Reads real Sentinel-1 radar and Sentinel-2 images for a 5 km square around the marked spot (or the map centre) and outlines water with a MindSpore ResNet-50 U-Net.
+              Experimental: not an official flood boundary.
             </p>
             <p v-if="aiModelStatus && !aiModelStatus.ready" class="parcel-map-status" role="status">{{ aiModelStatus.reason }}</p>
             <p v-else-if="aiModelStatus?.test_metrics" class="parcel-map-status">
@@ -160,7 +182,7 @@
               :disabled="isAnalyzingFlood || !aiModelStatus?.ready"
               @click="runFloodAnalysis"
             >
-              {{ isAnalyzingFlood ? 'Reading Sentinel data & running MindSpore…' : 'Analyse flood extent here' }}
+              {{ isAnalyzingFlood ? 'Reading Sentinel data & running MindSpore…' : 'Scan this area now' }}
             </button>
             <p v-if="aiAnalysisError" class="parcel-map-status ai-flood-error" role="alert">{{ aiAnalysisError }}</p>
             <div v-if="aiResult" class="ai-flood-result" role="status">
@@ -192,7 +214,7 @@
         </details>
 
         <details class="map-tools-group">
-          <summary>Farm data &amp; reference</summary>
+          <summary>Farms &amp; boundaries</summary>
           <div class="map-tools-group-content">
             <label class="map-layer-toggle">
               <input v-model="showParcels" type="checkbox" @change="setParcelVisibility">
@@ -329,10 +351,12 @@ const weatherLayers = [
   { value: 'rainfall', short: 'Rain watch', icon: '🌧', label: 'Rain watch', description: 'Where it is raining, and what that rain could flood. Satellite clouds (Himawari-9) and satellite-measured rain (NASA, green to red) show what is happening; forecast rain (purple) shows the next 6 hours; the MindSpore flood prediction sits on top.' },
   { value: 'clouds', short: 'Clouds', icon: '☁', label: 'Clouds · live satellite', description: 'Live JMA Himawari-9 cloud imagery with playback.' },
   { value: 'wind', short: 'Wind', icon: '💨', label: 'Wind · 72-hour forecast', description: 'Animated wind speed and direction forecast.' },
-  { value: 'precipitation', short: 'Next 6 h', icon: '💧', label: 'Precipitation · next 6 hours', description: 'Forecast rain total for the next six hours, by province.' },
+  { value: 'precipitation', short: 'Rain next 6 h', icon: '💧', label: 'Precipitation · next 6 hours', description: 'Forecast rain total for the next six hours, by province.' },
   { value: 'temperature', short: 'Temperature', icon: '🌡', label: 'Temperature · forecast', description: 'Forecast air temperature at 2 m, by province.' },
   { value: 'pressure', short: 'Pressure', icon: '◎', label: 'Pressure · forecast', description: 'Forecast sea-level air pressure: blue is lower than the rest of the country, red is higher.' },
 ]
+const floodLayers = weatherLayers.filter((layer) => ['outlook', 'rainfall'].includes(layer.value))
+const plainWeatherLayers = weatherLayers.filter((layer) => !['outlook', 'rainfall'].includes(layer.value))
 const FIELD_COORDINATES = [[116.5, 21.5], [127, 21.5], [127, 4.5], [116.5, 4.5]]
 const showImerg = ref(true)
 const imerg = ref(null)
@@ -593,19 +617,19 @@ function ensureScanMarkers() {
     event.originalEvent.stopPropagation()
     const content = document.createElement('div')
     const heading = document.createElement('strong')
-    heading.textContent = `Satellite scan · ${properties.province}`
+    heading.textContent = `Satellite radar check · ${properties.province}`
     content.append(heading)
     for (const text of [
-      `Water detected: ${Number(properties.flooded_km2).toFixed(1)} km² (${Math.round(Number(properties.flooded_fraction) * 100)}% of the 5 km tile)`,
-      `Sentinel-1 radar: ${properties.s1_date}`,
-      `Mode: ${properties.mode}`,
+      `Water found: ${Number(properties.flooded_km2).toFixed(1)} km² (${Math.round(Number(properties.flooded_fraction) * 100)}% of this 5 km square)`,
+      `Radar picture taken: ${properties.s1_date}`,
+      `Checked with: ${properties.mode === 'radar+optical' ? 'radar and a clear optical image' : 'radar only (cloudy)'}`,
     ]) {
       const line = document.createElement('p')
       line.textContent = text
       content.append(line)
     }
     const note = document.createElement('small')
-    note.textContent = 'MindSpore detection of surface water; paddies, fishponds and wetlands can look like flood.'
+    note.textContent = 'MindSpore marks surface water that was not there in the dry season. Rice paddies and fishponds can look like flood, so confirm before acting.'
     content.append(note)
     new mapboxgl.Popup({ maxWidth: '18rem' }).setLngLat(event.lngLat).setDOMContent(content).addTo(map)
   })
@@ -741,6 +765,7 @@ async function runFloodAnalysis() {
 }
 let map
 let selectionMarker
+let placePopup
 let resizeObserver
 let moveTimer
 let mapStartupTimer
@@ -1149,6 +1174,113 @@ function pressureMeaning(hpa) {
   return 'High · calm, mostly clear weather'
 }
 
+const VERDICTS = {
+  warning: ['Flooding likely here', 'warning'],
+  watch: ['Flooding possible here', 'watch'],
+  advisory: ['Flooding possible nearby', 'advisory'],
+  none: ['No flood expected right now', 'none'],
+}
+
+function reportRow(parent, label, value) {
+  const row = document.createElement('p')
+  row.className = 'place-report-row'
+  const name = document.createElement('span')
+  name.textContent = label
+  const text = document.createElement('b')
+  text.textContent = value
+  row.append(name, text)
+  parent.append(row)
+}
+
+function reportSection(parent, title) {
+  const heading = document.createElement('h4')
+  heading.textContent = title
+  parent.append(heading)
+}
+
+function fillPlaceReport(content, province, result, error) {
+  content.replaceChildren()
+  const title = document.createElement('strong')
+  title.className = 'place-report-title'
+  title.textContent = province?.name ? `${province.name}` : 'Open sea or outside the Philippines'
+  content.append(title)
+  if (!result) {
+    const message = document.createElement('p')
+    message.className = 'place-report-note'
+    message.textContent = error || 'There is no land here, so the flood models have nothing to say about this spot.'
+    content.append(message)
+    return
+  }
+  const level = result.rain_model?.level ?? 'none'
+  const [headline, tone] = VERDICTS[level]
+  const verdict = document.createElement('div')
+  verdict.className = `place-report-verdict place-report-${tone}`
+  verdict.textContent = headline
+  content.append(verdict)
+  const why = document.createElement('p')
+  why.className = 'place-report-note'
+  const terrain = result.watch.terrain
+  why.textContent = level === 'none'
+    ? (terrain === 'high' || terrain === 'moderate'
+      ? 'This land floods easily when heavy rain comes, but the rain expected over the last 3 and next day is not enough to flood it.'
+      : 'This land does not flood easily and no heavy rain is expected.')
+    : 'The MindSpore rain model expects water to collect in this area from the rain that has fallen and is forecast.'
+  content.append(why)
+
+  reportSection(content, 'Weather here')
+  const forecast = result.forecast ?? province
+  const layer = selectedWeatherLayer.value
+  if (layer === 'temperature' && forecast?.temperature_2m_c !== undefined) reportRow(content, 'Air temperature', `${Number(forecast.temperature_2m_c).toFixed(1)} °C`)
+  if (layer === 'pressure' && forecast?.pressure_msl_hpa !== undefined) {
+    reportRow(content, 'Air pressure', `${Number(forecast.pressure_msl_hpa).toFixed(0)} hPa`)
+    reportRow(content, 'What it means', pressureMeaning(Number(forecast.pressure_msl_hpa)).split(' · ')[0])
+  }
+  if (forecast) {
+    reportRow(content, 'Rain, next 6 hours', `${Number(forecast.precipitation_6h_mm).toFixed(1)} mm`)
+    reportRow(content, 'Rain, wettest day ahead', `${Number(forecast.rainfall_24h_mm).toFixed(0)} mm`)
+    reportRow(content, 'Rain, next 3 days', `${Number(forecast.rainfall_72h_mm).toFixed(0)} mm`)
+  }
+
+  reportSection(content, 'Flood risk (MindSpore)')
+  const flood = { high: 'High', moderate: 'Moderate', low: 'Low' }[terrain] ?? terrain
+  reportRow(content, 'Flood-prone land', `${flood} · ${(result.local.land_share_high * 100).toFixed(0)}% of land within ${result.local.radius_km} km`)
+  if (result.rain_model) {
+    reportRow(content, 'Rain-driven flood chance', `${Math.round(result.rain_model.probability_nearby * 100)}% within 1 km`)
+  }
+
+  const note = document.createElement('small')
+  note.className = 'place-report-note'
+  note.textContent = 'Research prototype from satellite data and AI models, not an official warning. Check PAGASA for advisories.'
+  content.append(note)
+}
+
+async function openPlaceReport(event) {
+  if (!map) return
+  const styleReady = map.isStyleLoaded()
+  const blocked = styleReady ? ['farm-parcel-fill', 'scan-markers', AI_FIELDS_FILL_ID].filter((layerId) => map.getLayer(layerId)) : []
+  if (blocked.length && map.queryRenderedFeatures(event.point, { layers: blocked }).length) return
+  const provinces = styleReady && map.getLayer('flood-screening-fill') ? map.queryRenderedFeatures(event.point, { layers: ['flood-screening-fill'] }) : []
+  const province = provinces[0]?.properties ?? null
+  const content = document.createElement('div')
+  content.className = 'place-report'
+  const loading = document.createElement('p')
+  loading.className = 'place-report-note'
+  loading.textContent = 'Checking this spot with the MindSpore models…'
+  content.append(loading)
+  placePopup?.remove()
+  placePopup = new mapboxgl.Popup({ maxWidth: '20rem', className: 'place-report-popup' }).setLngLat(event.lngLat).setDOMContent(content).addTo(map)
+  try {
+    const result = await predictFloodProneAreas({
+      latitude: Number(event.lngLat.lat.toFixed(6)),
+      longitude: Number(event.lngLat.lng.toFixed(6)),
+    })
+    fillPlaceReport(content, province, result, '')
+  } catch (error) {
+    const offLand = province === null
+    fillPlaceReport(content, province, null, offLand ? '' : (error instanceof Error ? error.message : 'The flood models could not be reached.'))
+  }
+}
+
 function setFloodScreeningDisplay() {
   const fillLayer = 'flood-screening-fill'
   const outlineLayer = 'flood-screening-outline'
@@ -1226,46 +1358,6 @@ function addFloodScreeningLayer(collection) {
     layout: { visibility: isGridWeatherMode.value ? 'visible' : 'none', 'line-join': 'round' },
     paint: { 'line-color': '#12372a', 'line-width': 2.2, 'line-opacity': 0.9 },
   }, 'admin-region-outline')
-  map.on('click', 'flood-screening-fill', (event) => {
-    const feature = event.features?.[0]
-    if (!feature) return
-    event.originalEvent.stopPropagation()
-    const properties = feature.properties ?? {}
-    const content = document.createElement('div')
-    const heading = document.createElement('strong')
-    heading.textContent = properties.name ?? 'Province'
-    content.append(heading)
-    const details = selectedWeatherLayer.value === 'outlook'
-      ? [
-          ['Wettest 24 hours ahead', `${Number(properties.rainfall_24h_mm).toFixed(1)} mm`],
-          ['Rain over 72 hours', `${Number(properties.rainfall_72h_mm).toFixed(1)} mm`],
-          ['Flood-prone land', `${Math.round(Number(properties.terrain_share ?? 0) * 100)}% of this province (MindSpore terrain model)`],
-        ]
-      : selectedWeatherLayer.value === 'temperature'
-      ? [['Air temperature', `${Number(properties.temperature_2m_c).toFixed(1)} °C`]]
-      : selectedWeatherLayer.value === 'precipitation'
-        ? [['Rain, next 6 hours', `${Number(properties.precipitation_6h_mm).toFixed(1)} mm`]]
-        : selectedWeatherLayer.value === 'pressure'
-          ? [['Sea-level pressure', `${Number(properties.pressure_msl_hpa).toFixed(1)} hPa`], ['What it means', pressureMeaning(Number(properties.pressure_msl_hpa))]]
-          : [
-              ['Rain, next 6 hours', `${Number(properties.precipitation_6h_mm).toFixed(1)} mm`],
-              ['Wettest 24 h (next 72 h)', `${Number(properties.rainfall_24h_mm).toFixed(1)} mm`],
-              ['Rain, next 72 h', `${Number(properties.rainfall_72h_mm).toFixed(1)} mm`],
-            ]
-    for (const [label, value] of [...details, ['Forecast from (UTC)', properties.forecast_start]]) {
-      const detail = document.createElement('p')
-      detail.textContent = `${label}: ${value}`
-      content.append(detail)
-    }
-    const note = document.createElement('small')
-    note.textContent = `Open-Meteo model forecast, from ${properties.sample_points} point${Number(properties.sample_points) === 1 ? '' : 's'} in this province. `
-      + (['rainfall', 'outlook'].includes(selectedWeatherLayer.value) ? 'Screening only, not an official warning.' : 'Not a station observation.')
-    content.append(note)
-    new mapboxgl.Popup({ maxWidth: '18rem' })
-      .setLngLat(event.lngLat)
-      .setDOMContent(content)
-      .addTo(map)
-  })
   map.on('mousemove', 'flood-screening-fill', (event) => {
     map.getCanvas().style.cursor = 'pointer'
     map.setFilter('flood-screening-hover', ['==', ['get', 'name'], event.features?.[0]?.properties?.name ?? ''])
@@ -1631,6 +1723,7 @@ onMounted(() => {
       latitude: Number(event.lngLat.lat.toFixed(6)),
       longitude: Number(event.lngLat.lng.toFixed(6)),
     })
+    void openPlaceReport(event)
   })
   map.once('load', () => {
     window.clearTimeout(mapStartupTimer)
