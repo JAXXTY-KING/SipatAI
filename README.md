@@ -105,7 +105,7 @@ We are entering the **Innovation Competition** of the Huawei ICT Competition 202
 | Uses Ascend hardware | **Not met** | Everything ran on laptop CPU. Ascend execution is not validated. |
 | Real-world problem | **Met** | Flood awareness for Philippine agriculture. |
 | Complete technical architecture | **Met** | [Section 4](#4-system-architecture). |
-| Technical documents | **Met (this README and `docs/`)** | Some files in `docs/` are older and partly outdated. See [section 19](#19-further-documents). |
+| Technical documents | **Met (this README and `ml/README.md`)** | See [section 19](#19-further-documents). |
 | Code files | **Met** | This repository. |
 | Demo video | **Not yet produced** | Planned. |
 | Onsite presentation | **Not yet prepared** | Only needed if we advance. |
@@ -334,8 +334,7 @@ SipatAI/
 │   ├── src/views/                     Map, Dashboard, Scenes, Reports
 │   ├── src/api/                       API client modules
 │   └── public/data/                   Province boundaries
-├── docs/                           Setup, Huawei Cloud, GaussDB and handover notes
-└── scripts/                        Parcel import and maintenance
+├── scripts/                        Parcel import and maintenance
 ```
 
 **Main things we built ourselves:**
@@ -353,7 +352,7 @@ SipatAI/
 
 ## 10. Installation and first run (Windows)
 
-Detailed steps are in [docs/setup_windows.md](docs/setup_windows.md). In short:
+Complete steps are below. In short:
 
 ### 10.1 Prerequisites
 
@@ -500,7 +499,7 @@ We have **not** used Huawei Cloud in practice. We did not receive Huawei Cloud c
 | **GaussDB with PostGIS** | Migrations, spatial queries, a parcel importer and report services. | No. No instance is configured. |
 | **Ascend** | Not used. | No. |
 
-The plan for a funded deployment is documented in [docs/huawei_cloud.md](docs/huawei_cloud.md) and [docs/gaussdb_postgis.md](docs/gaussdb_postgis.md). Credentials stay in backend environment variables and are never sent to the browser.
+The plan for a funded deployment is: export the trained U-Net to MindIR and host it on ModelArts (set `MODELARTS_INFERENCE_URL` and `MODELARTS_INFERENCE_TOKEN`), keep Sentinel scenes and processed artifacts in a private OBS bucket (`OBS_ENDPOINT`, `OBS_BUCKET`, and an ECS agency or backend-only access keys), and store spatial results in a PostGIS-enabled GaussDB instance (`GAUSSDB_DSN`). Credentials stay in backend environment variables and are never sent to the browser. Setting these variables is not proof that a service is reachable, so each one must be tested against the live service before we call it working.
 
 ---
 
@@ -542,7 +541,6 @@ We want to be clear about what SipatAI cannot do. **Please read this section bef
 - **Interface testing is limited.** Automated tests cover the backend and ML code. We tested the map by hand. Our automated browser could not load the Mapbox basemap, so some map interactions were not verified automatically.
 - **Mapbox requirements.** The map needs a Mapbox token and internet access.
 - **No authentication, rate limiting or production hardening.** The API is intended for local use or a controlled demo.
-- **Older documents.** Some files in `docs/` describe earlier stages and are partly outdated (see [section 19](#19-further-documents)).
 
 ---
 
@@ -619,15 +617,11 @@ We thank **Mariano Marcos State University**, our instructor **Renante Burgos**,
 
 ## 19. Further documents
 
-| Document | What it covers | Notes |
-|---|---|---|
-| [ml/README.md](ml/README.md) | The full MindSpore pipeline and metrics | Current |
-| [docs/setup_windows.md](docs/setup_windows.md) | Step-by-step Windows setup | Current |
-| [docs/huawei_cloud.md](docs/huawei_cloud.md) | ModelArts, OBS and GaussDB settings | Describes the planned deployment |
-| [docs/gaussdb_postgis.md](docs/gaussdb_postgis.md) | Database setup and parcel import | Not tested against a live instance |
-| [docs/production_readiness.md](docs/production_readiness.md) | What a real deployment still needs | Current |
-| [docs/doc.md](docs/doc.md) | Earlier handover notes (October 2026) | **Partly outdated.** It predates the trained models and the nationwide layers. Where it conflicts with this README, this README is correct. |
-| [docs/team_briefing.md](docs/team_briefing.md) | Short briefing for teammates | May be outdated |
+| Document | What it covers |
+|---|---|
+| [ml/README.md](ml/README.md) | The full MindSpore pipeline and metrics |
+
+We keep internal team notes outside this repository.
 
 ---
 
