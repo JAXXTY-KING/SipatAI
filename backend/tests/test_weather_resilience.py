@@ -136,6 +136,29 @@ def test_failure_without_previous_forecast_is_reported(monkeypatch):
     assert TestClient(app).get("/api/v1/weather/flood-screening").status_code == 502
 
 
+def test_fetch_started_on_another_event_loop_is_not_shared():
+    flood_screening._IN_FLIGHT.clear()
+
+    async def start_and_leave():
+        task = asyncio.ensure_future(asyncio.Event().wait())
+        flood_screening._IN_FLIGHT["key"] = task
+        return task
+
+    async def fetch():
+        return {"ok": True}
+
+    other_loop = asyncio.new_event_loop()
+    stuck = other_loop.run_until_complete(start_and_leave())
+    try:
+        result = asyncio.run(flood_screening._share_in_flight("key", fetch))
+    finally:
+        stuck.cancel()
+        other_loop.run_until_complete(asyncio.gather(stuck, return_exceptions=True))
+        other_loop.close()
+        flood_screening._IN_FLIGHT.clear()
+    assert result == {"ok": True}
+
+
 def _infrared_tile(values):
     tile = Image.new("L", (len(values), 1))
     tile.putdata(values)

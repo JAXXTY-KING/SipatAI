@@ -2,7 +2,7 @@
   <div class="app-shell" :class="{ 'app-shell-map': $route.name === 'flood-map' }">
     <aside class="sidebar">
       <RouterLink class="brand" to="/" aria-label="SipatAI map">
-        <span class="brand-mark">S</span>
+        <img class="brand-mark" src="/logo-circle.png" alt="SipatAI logo" width="48" height="48">
         <span><strong>SipatAI</strong><small>FLOOD ASSESSMENT</small></span>
       </RouterLink>
       <nav class="primary-nav" aria-label="Main navigation">
@@ -16,7 +16,7 @@
 
     <main class="main-content">
       <header class="topbar">
-        <div class="mobile-brand"><span class="brand-mark">S</span><strong>SipatAI</strong></div>
+        <div class="mobile-brand"><img class="brand-mark" src="/logo-circle.png" alt="SipatAI logo" width="36" height="36"><strong>SipatAI</strong></div>
         <span class="environment-label"><i></i> AGRICULTURAL FLOOD ASSESSMENT</span>
         <nav class="mobile-nav" aria-label="Main navigation">
           <RouterLink to="/" exact-active-class="is-active">Map</RouterLink>

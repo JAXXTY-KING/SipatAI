@@ -44,8 +44,10 @@ class FloodScreeningError(RuntimeError):
 
 async def _share_in_flight(key: str, start: Callable[[], Awaitable[dict[str, Any]]]) -> dict[str, Any]:
     """Let simultaneous requests share one provider fetch instead of each calling it."""
+    loop = asyncio.get_running_loop()
     task = _IN_FLIGHT.get(key)
-    if task is None or task.done():
+    # A task started by another event loop (for example the background scan thread) cannot be awaited here.
+    if task is None or task.done() or task.get_loop() is not loop:
         task = asyncio.ensure_future(start())
         _IN_FLIGHT[key] = task
 
