@@ -253,6 +253,18 @@ Other screens: **Dashboard** (rankings and scan statistics), **Satellite scenes*
 
 ## 8. What we installed (technology stack)
 
+### At a glance
+
+| Layer | Language | Framework or library |
+|---|---|---|
+| AI models and training | Python 3.12 | **MindSpore 2.10.0**, NumPy, SciPy, rasterio |
+| Backend API | Python 3.12 | **FastAPI** with Uvicorn |
+| Frontend | JavaScript (Vue single-file components), HTML, CSS | **Vue 3**, Vue Router, **Mapbox GL JS**, built with **Vite** |
+| Data storage | SQL | SQLite for saved scans and assessments; GaussDB with PostGIS for the optional database migrations |
+| Setup and run commands | PowerShell | Windows terminal |
+
+The sections below give every package with its version.
+
 ### 8.1 Tools
 
 | Tool | Version | Used for |
