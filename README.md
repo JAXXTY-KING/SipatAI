@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="frontend/public/logo.png" alt="SipatAI logo: an eye containing a river and a sprouting leaf" width="220">
+  <img src="frontend/public/SipatAi.jpg" alt="SipatAI logo: an eye containing a river and a sprouting leaf" width="220">
 </p>
 
 # SipatAI
