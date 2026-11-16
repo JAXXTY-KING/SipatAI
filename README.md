@@ -636,6 +636,7 @@ We thank **Mariano Marcos State University**, our instructor **Renante Burgos**,
 | Document | What it covers |
 |---|---|
 | [ml/README.md](ml/README.md) | The full MindSpore pipeline and metrics |
+| [CODE_SNIPPETS.md](CODE_SNIPPETS.md) | The key technical modules explained with real code snippets from this repository |
 
 We keep internal team notes outside this repository.
 
