@@ -310,27 +310,18 @@
       <div class="wind-forecast-scale"><span>Light</span><i></i><span>Strong</span></div>
     </aside>
 
-    <details v-if="mapToken" class="map-legend parcel-legend">
-      <summary>Legend</summary>
+    <details v-if="mapToken" class="map-legend parcel-legend" open>
+      <summary>What the colours mean</summary>
       <div class="parcel-legend-items">
         <span v-if="showRegions"><i class="region-legend-mark"></i> Administrative region · reference only</span>
-        <span v-if="showParcels"><i class="parcel-legend-mark"></i> Imported farm parcel</span>
+        <span v-if="showParcels && hasParcelFeatures"><i class="parcel-legend-mark"></i> Imported farm parcel</span>
         <span v-if="showDamage && hasDamageFeatures"><i class="damage-legend-mark"></i> Completed flood assessment</span>
-        <span v-if="isOutlookActive"><i class="flood-screening-legend-mark"></i> Blue: land that tends to flood (MindSpore terrain model) · yellow, orange, red: flooding the MindSpore rain model expects from the forecast rain, from advisory to warning</span>
-        <span v-if="isRainfallScreeningActive"><i class="flood-screening-legend-mark"></i> Satellite clouds · satellite-measured rain (green to red) · forecast rain, next 6 h (purple) · MindSpore flood prediction (yellow to red) on top</span>
-        <span v-if="isPressureActive"><i class="weather-legend-mark"></i> Sea-level pressure: blue lower, red higher · lines join equal pressure · L / H mark the lowest and highest</span>
-        <span v-if="isSatelliteImageActive"><i class="satellite-image-legend-mark"></i> Live cloud-only Himawari-9 imagery</span>
-        <span v-if="isWindForecastActive"><i class="wind-forecast-legend-mark"></i> Forecast wind direction and speed · Open-Meteo</span>
-        <span v-if="isWeatherGridActive"><i class="weather-legend-mark"></i> {{ selectedWeatherLayerLabel }} · by province · Open-Meteo forecast</span>
       </div>
-      <div v-if="isWeatherGridActive || isRainfallScreeningActive" class="weather-map-scale" :class="`weather-scale-${selectedWeatherLayer}`">
-        <strong>{{ weatherScaleTitle }}</strong>
-        <div class="weather-map-gradient"></div>
-        <div class="weather-map-scale-labels">
-          <span>{{ weatherScaleMinimum }}</span>
-          <span>{{ weatherScaleMaximum }}</span>
-        </div>
-      </div>
+      <section v-for="group in colourKey" :key="group.title" class="colour-key-group">
+        <strong>{{ group.title }}</strong>
+        <p v-for="row in group.rows" :key="row.label" class="colour-key-row"><i :style="{ background: row.colour }"></i><span>{{ row.label }}</span></p>
+        <small v-if="group.note">{{ group.note }}</small>
+      </section>
     </details>
   </section>
 </template>
@@ -368,6 +359,7 @@ const parcelStatus = ref('Waiting for parcel data…')
 const mapError = ref('')
 const damageStatus = ref('')
 const showRegions = ref(false)
+const hasParcelFeatures = ref(false)
 const showParcels = ref(true)
 const showDamage = ref(true)
 const satelliteObservedAt = ref('')
@@ -428,30 +420,141 @@ const floodScreeningStatus = computed(() => {
   }
   return `${collection.features.length} provinces · Open-Meteo forecast · updated ${updatedAt}`
 })
-const selectedWeatherLayerLabel = computed(() => (
-  weatherLayers.find((layer) => layer.value === selectedWeatherLayer.value)?.label ?? 'weather'
-))
 const selectedWeatherLayerDescription = computed(() => (
   weatherLayers.find((layer) => layer.value === selectedWeatherLayer.value)?.description ?? ''
 ))
-const weatherScaleTitle = computed(() => ({
-  rainfall: 'Forecast rain · next 6 h (mm)',
-  precipitation: 'Precipitation · next 6 h (mm)',
-  temperature: 'Air temperature · °C',
-  pressure: 'Sea-level pressure · hPa',
-}[selectedWeatherLayer.value] ?? ''))
-const weatherScaleMinimum = computed(() => ({
-  rainfall: '0.1 mm',
-  precipitation: '0 mm',
-  temperature: '−5 °C',
-  pressure: pressureScale.value ? `Lower · ${pressureScale.value.min} hPa` : 'Lower',
-}[selectedWeatherLayer.value] ?? ''))
-const weatherScaleMaximum = computed(() => ({
-  rainfall: '30+ mm',
-  precipitation: '50+ mm',
-  temperature: '40 °C',
-  pressure: pressureScale.value ? `Higher · ${pressureScale.value.max} hPa` : 'Higher',
-}[selectedWeatherLayer.value] ?? ''))
+const TERRAIN_KEY = {
+  title: 'Flood-prone land · MindSpore terrain model',
+  rows: [
+    { colour: '#96c8f0', label: 'Light blue · water has gathered here in the past' },
+    { colour: '#1850aa', label: 'Dark blue · floods most easily' },
+  ],
+  note: 'Based on land height, slope and 36 years of satellite water history. It shows where water tends to collect, not a forecast.',
+}
+const RAIN_MODEL_KEY = {
+  title: 'Flood signal from rain · MindSpore rain model',
+  rows: [
+    { colour: '#f0c93a', label: 'Yellow · weak signal' },
+    { colour: '#ee8a2b', label: 'Orange · medium signal' },
+    { colour: '#c83e3e', label: 'Red · strong signal' },
+    { colour: '#7f1d1d', label: 'Dark red · strongest signal' },
+  ],
+  note: 'Drawn only where the forecast rain is heavy (10 mm a day or more). No colour does not mean safe. Experimental, not an official warning.',
+}
+const PRONE_PLAIN_KEY = {
+  title: 'Flood-prone land · MindSpore terrain model',
+  rows: [
+    { colour: '#fef08a', label: 'Yellow · somewhat flood-prone' },
+    { colour: '#f97316', label: 'Orange · flood-prone' },
+    { colour: '#dc2626', label: 'Red · very flood-prone' },
+    { colour: '#7f1d1d', label: 'Dark red · most flood-prone' },
+  ],
+  note: 'This is land that tends to hold water, not today’s weather. Switch off "Flood-prone terrain" in Map layers to hide it.',
+}
+const CLOUD_KEY = {
+  title: 'Clouds · live satellite (Himawari-9)',
+  rows: [
+    { colour: 'linear-gradient(90deg, #d6d6d6, #ffffff)', label: 'Grey to white · clouds. Whiter means thicker, higher cloud' },
+  ],
+}
+const colourKey = computed(() => {
+  const layer = selectedWeatherLayer.value
+  const groups = []
+  if (layer === 'outlook') groups.push(TERRAIN_KEY, RAIN_MODEL_KEY)
+  if (layer === 'rainfall') {
+    groups.push(
+      CLOUD_KEY,
+      {
+        title: 'Rain measured by NASA satellite · about 4–6 h old',
+        rows: [
+          { colour: '#079425', label: 'Dark green · very light rain' },
+          { colour: '#a8da00', label: 'Light green · light rain' },
+          { colour: '#f9d400', label: 'Yellow · moderate rain' },
+          { colour: '#f9a20d', label: 'Orange · heavy rain' },
+          { colour: '#dc2020', label: 'Red · very heavy rain' },
+        ],
+      },
+      {
+        title: 'Forecast rain · next 6 hours',
+        rows: [
+          { colour: '#a082e8', label: 'Light purple · 0.1 mm, a drizzle' },
+          { colour: '#7854de', label: 'Purple · 1 mm' },
+          { colour: '#6234ce', label: 'Deep purple · 3 mm' },
+          { colour: '#8c28be', label: 'Magenta · 8 mm' },
+          { colour: '#be1e96', label: 'Pink · 15 mm, heavy' },
+          { colour: '#d61e5a', label: 'Crimson · 30 mm or more' },
+        ],
+      },
+      TERRAIN_KEY,
+      RAIN_MODEL_KEY,
+    )
+  }
+  if (layer === 'clouds') groups.push(CLOUD_KEY)
+  if (layer === 'wind') {
+    groups.push({
+      title: 'Wind · 72-hour forecast',
+      rows: [
+        { colour: '#5bd4dd', label: 'Cyan · light wind' },
+        { colour: '#ffd94d', label: 'Yellow · moderate wind' },
+        { colour: '#ff8b38', label: 'Orange · strong wind' },
+        { colour: '#f03b43', label: 'Red · very strong wind' },
+      ],
+      note: 'The moving streaks show which way the wind blows.',
+    })
+  }
+  if (layer === 'precipitation') {
+    groups.push({
+      title: 'Forecast rain · next 6 hours, by province',
+      rows: [
+        { colour: '#f2f7fa', label: 'White · dry' },
+        { colour: '#8be0f2', label: 'Pale blue · 0.1 mm, a drizzle' },
+        { colour: '#30a9d8', label: 'Blue · 1 mm, light rain' },
+        { colour: '#4169e1', label: 'Royal blue · 5 mm, moderate rain' },
+        { colour: '#7b2cbf', label: 'Purple · 15 mm, heavy rain' },
+        { colour: '#e53935', label: 'Red · 30 mm, very heavy rain' },
+        { colour: '#8e0000', label: 'Dark red · 50 mm or more' },
+      ],
+    })
+  }
+  if (layer === 'temperature') {
+    groups.push({
+      title: 'Air temperature · forecast, by province',
+      rows: [
+        { colour: '#313695', label: 'Dark blue · −5 °C, very cold (rare here)' },
+        { colour: '#74add1', label: 'Blue · 10 °C, cool' },
+        { colour: '#abd9e9', label: 'Light blue · 20 °C, mild' },
+        { colour: '#ffffbf', label: 'Pale yellow · 25 °C, warm' },
+        { colour: '#fdae61', label: 'Orange · 30 °C, hot' },
+        { colour: '#f46d43', label: 'Red-orange · 35 °C, very hot' },
+        { colour: '#d73027', label: 'Red · 40 °C, extreme heat' },
+      ],
+    })
+  }
+  if (layer === 'pressure') {
+    const range = pressureScale.value
+    groups.push({
+      title: 'Sea-level air pressure · forecast',
+      rows: [
+        { colour: '#3a4cc0', label: `Blue · lowest pressure in the country today${range ? `, ${range.min} hPa` : ''}` },
+        { colour: '#ebebeb', label: 'Grey · in between' },
+        { colour: '#d6604d', label: `Red · highest pressure in the country today${range ? `, ${range.max} hPa` : ''}` },
+      ],
+      note: 'Colours compare places with each other, so blue does not always mean a storm. About 1013 hPa is normal; below about 1000 hPa points to a storm. Each line joins places with equal pressure. L marks the lowest and H the highest.',
+    })
+  }
+  if (!['outlook', 'rainfall'].includes(layer) && showProne.value) groups.push(PRONE_PLAIN_KEY)
+  if (showScan.value) {
+    groups.push({
+      title: 'Floods seen by satellite · radar scan',
+      rows: [
+        { colour: '#2563eb', label: 'Blue · water the satellite sees' },
+        { colour: '#ea580c', label: 'Orange · water over farmland' },
+      ],
+      note: 'Blank areas have not been scanned yet. Blank does not mean no flood.',
+    })
+  }
+  return groups
+})
 const isLoadingParcels = ref(false)
 const hasDamageFeatures = ref(false)
 const aiModelStatus = ref(null)
@@ -1630,6 +1733,7 @@ async function loadParcels() {
     const parcelSource = map.getSource('farm-parcels')
     if (!parcelSource) return
     parcelSource.setData(collection)
+    hasParcelFeatures.value = collection.features.length > 0
 
     if (collection.truncated) {
       parcelStatus.value = `More than 2,500 parcels are in view. Zoom in to load them safely.`
@@ -1643,6 +1747,7 @@ async function loadParcels() {
     }
   } catch (error) {
     if (currentRequest !== requestSequence) return
+    hasParcelFeatures.value = false
     parcelStatus.value = error instanceof Error
       ? `Parcel data unavailable: ${error.message}`
       : 'Parcel data is unavailable. Check the API and database configuration.'
