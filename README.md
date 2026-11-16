@@ -107,7 +107,7 @@ We are entering the **Innovation Competition** of the Huawei ICT Competition 202
 | Complete technical architecture | **Met** | [Section 4](#4-system-architecture). |
 | Technical documents | **Met (this README and `ml/README.md`)** | See [section 19](#19-further-documents). |
 | Code files | **Met** | This repository. |
-| Demo video | **Not yet produced** | Planned. |
+| Demo video | **Met** | Produced by our team. |
 | Onsite presentation | **Not yet prepared** | Only needed if we advance. |
 | Commercial potential | **Described, not proven** | We have not validated any market, pricing or customer. See [roadmap](#17-roadmap). |
 
@@ -582,7 +582,7 @@ At the time of writing, all 83 backend tests and 8 ML tests pass and the fronten
 7. **Add weather inputs to the models** (wind, pressure and other fields) once a flood-labelled weather archive is available.
 8. **Typhoon track** integration from an official source.
 9. **Local-language interface** (Filipino and Ilocano) and a phone-friendly layout.
-10. **Demo video, user feedback and pilot** with a municipal agriculture office, to test real demand before claiming any commercial value.
+10. **User feedback and a pilot** with a municipal agriculture office, to test real demand before claiming any commercial value.
 
 ---
 
