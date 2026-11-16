@@ -91,8 +91,8 @@ We are entering the **Innovation Competition** of the Huawei ICT Competition 202
 | Entries must be **original, legal and IP-clear**, and must not discriminate or violate privacy. | All code is our own. Third-party data is public and credited in [section 18](#18-data-licences-and-acknowledgements). We collect no personal data. |
 | **IP stays with the participants.** The organiser gets free rights to reproduce, show and disseminate entries. | We keep our IP. We have not yet chosen an open-source licence. |
 | Innovation entries use **Huawei AI** (for example MindSpore, Ascend, Huawei Cloud) **combined with** generative AI, big data, cloud, mobile Internet or IoT. | We use MindSpore with large-scale open satellite and weather data. |
-| Solutions must address a **real-world need**, show an **innovative scenario**, show **commercial potential** and have a **complete technical architecture**. | See sections 1, 2 and 4. |
-| Deliverables: **technical documents, code files, a demo video**, and an **onsite presentation** at the Regional and Global Finals. | See the status table below. |
+| Solutions must address a **real-world need**, show an **innovative scenario**, show **commercial potential** and have a **complete technical architecture**. | See [section 1](#1-why-we-built-sipatai), [section 2](#2-what-sipatai-does) and [section 4](#4-system-architecture). |
+| Deliverables: **technical documents, code files, a demo video**, and an **onsite presentation** at the Regional and Global Finals. | See the [status table below](#32-our-honest-status-against-the-requirements). |
 | Three levels: **National, Regional and Global Final** (Shenzhen, May 2027). | We will follow the national organiser's schedule. |
 | Special awards include the **Green Development Award** (sustainability, SDGs) and the **TECH4ALL** inclusion award. | Our flood-awareness focus relates to climate resilience (SDG 13) and food security (SDG 2). We make no claim to any award. |
 
@@ -549,7 +549,7 @@ We want to be clear about what SipatAI cannot do. **Please read this section bef
 - **Not an official warning.** Do not use SipatAI to decide evacuation, insurance, loans or any safety-critical action.
 - **No personal data.** We do not collect, store or sell personal information, and the place report keeps nothing about the visitor. Saved scans contain numbers and images only. We do not use landowner data.
 - **Secrets stay private.** Keys and passwords live in git-ignored `.env` files on the backend. The Mapbox token in the frontend is public and domain-restricted. An OpenWeatherMap key was once shared in chat and **must stay rotated** and never be reused.
-- **Attribution and licences.** We credit our data sources and respect their terms (section 18).
+- **Attribution and licences.** We credit our data sources and respect their terms (see [section 18](#18-data-licences-and-acknowledgements)).
 - **Honest reporting.** The interface says when data is unavailable, and it labels experimental and hypothetical content.
 
 ---
@@ -607,7 +607,7 @@ SipatAI would not exist without these open resources. Licences are those stated 
 | Mapbox Streets | Mapbox terms of service |
 | AWS Terrain Tiles (Mapzen) | See the Terrain Tiles attribution |
 
-**Software:** MindSpore, FastAPI, Vue, Vite, Mapbox GL JS, DuckDB, rasterio, Shapely, Fiona, ReportLab and the other packages in section 8 keep their own open-source licences.
+**Software:** MindSpore, FastAPI, Vue, Vite, Mapbox GL JS, DuckDB, rasterio, Shapely, Fiona, ReportLab and the other packages in [section 8](#8-what-we-installed-technology-stack) keep their own open-source licences.
 
 **Our code:** We have not yet chosen a licence for our own code. Until then, all rights are reserved by the authors, with the usage rights the Huawei ICT Competition rules grant to the organiser.
 
